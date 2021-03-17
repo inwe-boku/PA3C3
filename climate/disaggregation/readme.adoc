@@ -1,20 +1,20 @@
-## Short Description
+# Short Description
 
 The dissaggregation of precpitation is done in three steps.
 
 For temperature, I have included two different versions ( one for  2D gridded data and other for 1D station data).
 The scripts were originally written by Robert Goler.
 
-# Precipitation
+## Precipitation
 01-Precip_disaggregation_v1.2_part01.ncl
 02-Precip_disaggregation_v12.0_part02.ncl
 03-Precip_disaggregation_v12.1_part03.ncl
 
-# Temperature
+## Temperature
 Temperature_disaggregation_v6.2_fullGrid.ncl
 Temperature_disaggregation_v6.2_TwoStations.ncl
 
-# Other Variables
+## Other Variables
 Radiation_disaggregation_v2.2.ncl
 Rel_humidity_disaggregation_v4.1.ncl
 Windspeed_disaggregation_v2.1.ncl
