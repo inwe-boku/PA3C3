@@ -18,3 +18,7 @@ Temperature_disaggregation_v6.2_TwoStations.ncl
 Radiation_disaggregation_v2.2.ncl
 Rel_humidity_disaggregation_v4.1.ncl
 Windspeed_disaggregation_v2.1.ncl
+
+## Contact Information
+
+imran.nadeem@boku.ac.at
