@@ -25,6 +25,7 @@ Reference period: 1981-2005
 
 ### Time
 
+- variable: time
 - days since 1949-12-01 00:00:00
 - 360 day calendar (12x30)
 
