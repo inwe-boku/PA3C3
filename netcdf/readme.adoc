@@ -1,5 +1,21 @@
 # Description
 
+### Downscaling
+
+https://www.hindawi.com/journals/ijp/2015/968024/
+
+### Sunrise/Sunset
+
+several python libraries exists, simple one: suntimes
+
+```
+import suntimes
+place = SunTimes(lon, lat, alt=200)
+
+```
+
+### NetCDF
+
 The NC Files from CCCA have the following structure (solar radiation example):
 
 ```
