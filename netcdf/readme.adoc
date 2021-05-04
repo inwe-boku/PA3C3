@@ -1,6 +1,6 @@
 # Description
 
-The NC Files from CCCA have the following structure:
+The NC Files from CCCA have the following structure (solar radiation example):
 
 ```
 <class 'netCDF4._netCDF4.Dataset'>
@@ -21,3 +21,13 @@ Reference period: 1981-2005
     variables(dimensions): int32 lambert_conformal(), float64 lat(y, x), float64 lon(y, x), float32 rsds(time, y, x), float64 time(time), float64 time_bnds(time, bnds), int32 x(x), int32 y(y)
     groups:
   ```
+
+### Time
+```
+    axis: T
+    bounds: time_bnds
+    units: days since 1949-12-01T00:00:00Z
+    standard_name: time
+    long_name: time
+    calendar: 360_day
+```
