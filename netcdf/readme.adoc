@@ -20,14 +20,11 @@ Reference period: 1981-2005
     dimensions(sizes): y(297), x(575), time(53610), bnds(2)
     variables(dimensions): int32 lambert_conformal(), float64 lat(y, x), float64 lon(y, x), float32 rsds(time, y, x), float64 time(time), float64 time_bnds(time, bnds), int32 x(x), int32 y(y)
     groups:
-  ```
+
+```
 
 ### Time
-```
-    axis: T
-    bounds: time_bnds
-    units: days since 1949-12-01T00:00:00Z
-    standard_name: time
-    long_name: time
-    calendar: 360_day
-```
+
+- days since 1949-12-01 00:00:00
+- 360 day calendar (12x30)
+
