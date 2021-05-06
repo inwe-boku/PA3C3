@@ -36,8 +36,10 @@ Reference period: 1981-2005
     dimensions(sizes): y(297), x(575), time(53610), bnds(2)
     variables(dimensions): int32 lambert_conformal(), float64 lat(y, x), float64 lon(y, x), float32 rsds(time, y, x), float64 time(time), float64 time_bnds(time, bnds), int32 x(x), int32 y(y)
     groups:
-
 ```
+
+we have t approximate the location to get to the metered values on the conical CRS.
+- written a function for that (thanks peter for the hints)
 
 ### Time
 
@@ -51,3 +53,15 @@ Reference period: 1981-2005
 - variable: rsds
 - unit: W/m²
 - mode: mean
+
+### Process of DATA
+
+#### GHI daily mean -> GHI hourly
+
+##### Lui Jordan
+- INPUT: angle of sunset (pvlib), current sun angle (pvlib)
+
+##### Collares-Pereira Rabel
+- INPUT: angle of sunset, current angle
+
+##### 
