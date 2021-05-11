@@ -41,10 +41,10 @@ res = nd.sel(x=nx, y=ny, time = day, method = 'nearest')
 
 print(nd.title)
 
-print(res['rsds'].values)
+# print(res['rsds'].values)
 
 place = suntimes.SunTimes(9.3, 41.6, altitude=200)
-print(place.riseutc(day))
+w_s = place.setutc(day)
 
 location = pvlib.location.Location(
     coords['geometry'].y,
@@ -53,13 +53,23 @@ location = pvlib.location.Location(
     250,
     'Vienna-Austria')
 
-dtseries = pd.date_range(start='2020-07-01', end='2020-07-3', periods=49)
-ghiseries = pd.DataFrame({'GHI':[0, 0, 0, 0, 10, 20, 30, 50, 70, 80, 90, 110, 140, 110, 90, 80, 70, 50, 30, 20, 10, 0, 0, 0, 0 ]})
-print(dtseries)
-solar_position = location.get_solarposition(dtseries[13])
-print(solar_position)
-disc = pvlib.irradiance.disc(
-    500,
-    solar_position['apparent_zenith'].values,
-    dtseries[13])
-print(disc)
+dtseries = pd.date_range(start='2020-07-01', end='2020-07-03', periods=49)
+
+for dt in dtseries:
+    settime = place.setutc(dt)
+    solar_position = location.get_solarposition(settime)
+
+    zenith_sunset = solar_position['apparent_zenith'].values[0]
+    w_s = solar_position['azimuth'].values[0]
+
+    solar_position = location.get_solarposition(dt)
+    w_h = solar_position['azimuth'].values[0]
+    #dni = pvlib.irradiance.disc(
+    #    500,
+    #    w_h,
+    #    dt)['dni']
+
+    rad_hourly = 300 * math.pi/24 * (math.cos(math.radians(w_h)) - math.cos(math.radians(w_s))) / ( math.sin(math.radians(w_s)) - (2 * math.pi * math.radians(w_s) / 360 * math.cos(w_s)))
+    # print(math.cos(w_h))
+    print(dt, w_s, w_h, rad_hourly)
+    
