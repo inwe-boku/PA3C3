@@ -19,6 +19,9 @@ def cccanccoords(nd, point, csrs = 'epsg:4326'):
     ([yloc], [xloc]) = np.where(c == np.min(c))
     return(nd['x'][xloc].values, nd['y'][yloc].values)
 
+def radiation_daily2hourly(location, date, ghi_dailymean):
+    return 1
+
 day = cftime.Datetime360Day(2050, 7, 1, 12, 0, 0, 0)
 print(day.strftime('%j'))
 
@@ -53,23 +56,38 @@ location = pvlib.location.Location(
     250,
     'Vienna-Austria')
 
-dtseries = pd.date_range(start='2020-07-01', end='2020-07-03', periods=49)
+dates = pd.date_range(start='2020-01-01', end='2020-01-03')
 
-for dt in dtseries:
-    settime = place.setutc(dt)
+for date in dates:
+    settime = place.setutc(date)
     solar_position = location.get_solarposition(settime)
-
     zenith_sunset = solar_position['apparent_zenith'].values[0]
     w_s = solar_position['azimuth'].values[0]
 
-    solar_position = location.get_solarposition(dt)
-    w_h = solar_position['azimuth'].values[0]
-    #dni = pvlib.irradiance.disc(
-    #    500,
-    #    w_h,
-    #    dt)['dni']
+    datetimes = pd.date_range(start=date, end=date + + datetime.timedelta(hours=23), freq='H')
+    rad = {'settime': settime,
+           'w_s': w_s}
+    w_harr = []
+    r_h = []
+    z_harr = []
+    for dt in datetimes:
+        solar_position = location.get_solarposition(dt)
+        w_h = solar_position['azimuth'].values[0]
+        z_h = solar_position['zenith'].values[0]
+        #dni = pvlib.irradiance.disc(
+        #    500,
+        #    w_h,
+        #    dt)['dni']
 
-    rad_hourly = 300 * math.pi/24 * (math.cos(math.radians(w_h)) - math.cos(math.radians(w_s))) / ( math.sin(math.radians(w_s)) - (2 * math.pi * math.radians(w_s) / 360 * math.cos(w_s)))
-    # print(math.cos(w_h))
-    print(dt, w_s, w_h, rad_hourly)
+        r_h.append(300 * math.pi/24 * (math.cos(math.radians(w_h)) - math.cos(math.radians(w_s))) / ( math.sin(math.radians(w_s)) - (2 * math.pi * math.radians(w_s) / 360 * math.cos(w_s))))
+        w_harr.append(w_h)
+        z_harr.append(z_h)
+    r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
+
+    rad['w_h'] = w_harr
+    rad['z_h'] = z_harr
+    rad['r_h'] = r_h
+
+
+    print(rad)
     
