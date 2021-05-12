@@ -64,4 +64,6 @@ we have t approximate the location to get to the metered values on the conical C
 ##### Collares-Pereira Rabel
 - INPUT: angle of sunset, current angle
 
-##### 
+##### horizon calculation from DEM/DHM
+
+https://pypi.org/project/topocalc/#horizon-angles
