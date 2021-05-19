@@ -10,6 +10,10 @@ import cftime
 from shapely.geometry import Point, Polygon
 import matplotlib.pyplot as plt
 import pvlib
+from topocalc.horizon import horizon
+from topocalc.gradient import gradient_d8
+from topocalc.viewf import viewf
+from osgeo import gdal
 
 def cccanccoords(nd, point, csrs = 'epsg:4326'):
     abslat = np.abs(nd.lat-coords['geometry'].y[0])
@@ -88,6 +92,30 @@ for date in dates:
     rad['z_h'] = z_harr
     rad['r_h'] = r_h
 
-
     print(rad)
     
+options = gdal.WarpOptions(cutlineDSName="/home/cmikovits/myshape.shp",cropToCutline=True)
+outBand = gdal.Warp(srcDSOrSrcDSTab="/home/cmikovits/Downloads/ogd-10m-at/dhm_at_lamb_10m_2018.tif",
+                        destNameOrDestDS="/tmp/cut.tif",
+                        options=options)
+outBand = None
+
+
+ds = gdal.Open("/tmp/cut.tif")
+#print(ds.info())
+#gt = ds.GetGeoTransform()
+dem = np.array(ds.GetRasterBand(1).ReadAsArray())
+dem = dem.astype(np.double)
+
+print(dem)
+
+dem_spacing = 10
+
+hrz = horizon(0, dem, dem_spacing)
+#slope, aspect = gradient_d8(dem, dem_spacing, dem_spacing)
+#svf, tvf = viewf(dem, spacing=dem_spacing)
+
+print(hrz)
+
+plt.imshow(hrz)
+plt.show()
