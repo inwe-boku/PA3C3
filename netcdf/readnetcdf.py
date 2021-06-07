@@ -15,6 +15,8 @@ from topocalc.gradient import gradient_d8
 from topocalc.viewf import viewf
 from osgeo import gdal
 
+from pprint import pprint
+
 def cccanccoords(nd, point, csrs = 'epsg:4326'):
     abslat = np.abs(nd.lat-coords['geometry'].y[0])
     abslon = np.abs(nd.lon-coords['geometry'].x[0])
@@ -62,6 +64,8 @@ location = pvlib.location.Location(
 
 dates = pd.date_range(start='2020-01-01', end='2020-01-03')
 
+### sun location
+
 for date in dates:
     settime = place.setutc(date)
     solar_position = location.get_solarposition(settime)
@@ -74,28 +78,38 @@ for date in dates:
     w_harr = []
     r_h = []
     z_harr = []
+    dni_disc_harr = []
+    dni_erbs_harr = []
     for dt in datetimes:
         solar_position = location.get_solarposition(dt)
-        w_h = solar_position['azimuth'].values[0]
-        z_h = solar_position['zenith'].values[0]
-        #dni = pvlib.irradiance.disc(
-        #    500,
-        #    w_h,
-        #    dt)['dni']
+        w_h = solar_position['azimuth'].values[0]  ### azimuth of sun
+        z_h = solar_position['zenith'].values[0]   ### zenith of sun
+        dni_disc = pvlib.irradiance.disc(
+            500,
+            z_h,
+            dt)['dni']
 
+        dni_erbs = pvlib.irradiance.erbs(500,z_h,dt)
         r_h.append(300 * math.pi/24 * (math.cos(math.radians(w_h)) - math.cos(math.radians(w_s))) / ( math.sin(math.radians(w_s)) - (2 * math.pi * math.radians(w_s) / 360 * math.cos(w_s))))
         w_harr.append(w_h)
         z_harr.append(z_h)
+        dni_disc_harr.append(dni_disc)
+        dni_erbs_harr.append(dni_erbs)
     r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
 
     rad['w_h'] = w_harr
     rad['z_h'] = z_harr
     rad['r_h'] = r_h
+    rad['dni_disc'] = dni_disc_harr
+    rad['dni_erbs'] = dni_erbs_harr
 
-    print(rad)
-    
+    pprint(rad)
+
+
+### horizon / terrain calculation
+
 options = gdal.WarpOptions(cutlineDSName="/home/cmikovits/myshape.shp",cropToCutline=True)
-outBand = gdal.Warp(srcDSOrSrcDSTab="/home/cmikovits/Downloads/ogd-10m-at/dhm_at_lamb_10m_2018.tif",
+outBand = gdal.Warp(srcDSOrSrcDSTab="/home/cmikovits/GEODATA/DHMAT/dhm_at_lamb_10m_2018.tif",
                         destNameOrDestDS="/tmp/cut.tif",
                         options=options)
 outBand = None
@@ -119,3 +133,18 @@ print(hrz)
 
 plt.imshow(hrz)
 plt.show()
+
+### PV System Modelling
+
+modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
+inverter = pvlib.pvsystem.retrieve_sam('cecinverter')
+inverter = inverter['ABB__MICRO_0_25_I_OUTD_US_208__208V_']
+temperature_m = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['open_rack_glass_glass']
+
+
+system = pvlib.pvsystem.PVSystem(surface_tilt=20, surface_azimuth=180,
+                                 module_parameters = modules,
+                                 inverter_parameters = inverter,
+                                 temperature_model_parameters = temperature_m)
+
+print(system)
