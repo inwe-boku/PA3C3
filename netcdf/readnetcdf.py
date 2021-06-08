@@ -28,7 +28,7 @@ def cccanccoords(nd, point, csrs = 'epsg:4326'):
 def radiation_daily2hourly(location, date, ghi_dailymean):
     return 1
 
-day = cftime.Datetime360Day(2050, 7, 1, 12, 0, 0, 0)
+day = cftime.Datetime360Day(2050, 6, 20, 12, 0, 0, 0)
 print(day.strftime('%j'))
 
 coords = pd.DataFrame(
@@ -50,7 +50,7 @@ res = nd.sel(x=nx, y=ny, time = day, method = 'nearest')
 
 print(nd.title)
 
-# print(res['rsds'].values)
+rsds_value = res['rsds'].values
 
 place = suntimes.SunTimes(9.3, 41.6, altitude=200)
 w_s = place.setutc(day)
@@ -59,53 +59,55 @@ location = pvlib.location.Location(
     coords['geometry'].y,
     coords['geometry'].x,
     'Europe/Vienna',
-    250,
+    250, #müa
     'Vienna-Austria')
 
-dates = pd.date_range(start='2020-01-01', end='2020-01-03')
+dates = pd.date_range(start='2020-07-01', end='2020-07-03')
+
+
 
 ### sun location
 
 for date in dates:
     settime = place.setutc(date)
     solar_position = location.get_solarposition(settime)
-    zenith_sunset = solar_position['apparent_zenith'].values[0]
+    zenith_sunset = solar_position['apparent_zenith'].values[0] #sunset azimuth
     w_s = solar_position['azimuth'].values[0]
+    print(rsds_value)
 
     datetimes = pd.date_range(start=date, end=date + + datetime.timedelta(hours=23), freq='H')
     rad = {'settime': settime,
            'w_s': w_s}
-    w_harr = []
-    r_h = []
-    z_harr = []
-    dni_disc_harr = []
-    dni_erbs_harr = []
+    print(rad)
+
+    data = pd.DataFrame(index = datetimes, columns = {'w_h', 'z_h', 'dni_disc', 'dni_erbs', 'dhi_erbs', 'r_h'})
     for dt in datetimes:
         solar_position = location.get_solarposition(dt)
         w_h = solar_position['azimuth'].values[0]  ### azimuth of sun
+        data['w_h'].loc[dt] = w_h
         z_h = solar_position['zenith'].values[0]   ### zenith of sun
+        data['z_h'].loc[dt] = z_h
+
+        r_h = rsds_value * math.pi/24 * (math.cos(math.radians(w_h)) - math.cos(math.radians(w_s))) / ( math.sin(math.radians(w_s)) - (2 * math.pi * math.radians(w_s) / 360 * math.cos(math.radians(w_s))))
+        # formula from: https://www.hindawi.com/journals/ijp/2015/968024/ #1
+        data['r_h'].loc[dt] = np.clip(r_h, a_min = 0, a_max=None)
+
         dni_disc = pvlib.irradiance.disc(
-            500,
+            r_h,
             z_h,
             dt)['dni']
+        data['dni_disc'].loc[dt] = dni_disc
+        dni_erbs = pvlib.irradiance.erbs(r_h,z_h,dt)
+        data['dni_erbs'].loc[dt] = dni_erbs['dni']
+        data['dhi_erbs'].loc[dt] = dni_erbs['dhi']
 
-        dni_erbs = pvlib.irradiance.erbs(500,z_h,dt)
-        r_h.append(300 * math.pi/24 * (math.cos(math.radians(w_h)) - math.cos(math.radians(w_s))) / ( math.sin(math.radians(w_s)) - (2 * math.pi * math.radians(w_s) / 360 * math.cos(w_s))))
-        w_harr.append(w_h)
-        z_harr.append(z_h)
-        dni_disc_harr.append(dni_disc)
-        dni_erbs_harr.append(dni_erbs)
-    r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
+    # r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
 
-    rad['w_h'] = w_harr
-    rad['z_h'] = z_harr
-    rad['r_h'] = r_h
-    rad['dni_disc'] = dni_disc_harr
-    rad['dni_erbs'] = dni_erbs_harr
-
-    pprint(rad)
+    print(data)
 
 
+
+exit(0)
 ### horizon / terrain calculation
 
 options = gdal.WarpOptions(cutlineDSName="/home/cmikovits/myshape.shp",cropToCutline=True)
