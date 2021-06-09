@@ -17,19 +17,109 @@ from osgeo import gdal
 
 from pprint import pprint
 
-def cccanccoords(nd, point, csrs = 'epsg:4326'):
-    abslat = np.abs(nd.lat-coords['geometry'].y[0])
-    abslon = np.abs(nd.lon-coords['geometry'].x[0])
+def calc_ccca_xy(nd, point, csrs = 'epsg:4326'):
+    """
+    Calculates x and y values from a netcdf file for given coordinates from a
+    point with lat / lon values.
+    The netcdf is expected to have a format as used by the CCCA.
+
+    Parameters
+    ----------
+    nd : open netcdf file (netcdf data)
+
+    Returns
+    -------
+    x, y : values (integer)
+    """
+    abslat = np.abs(nd.lat - point['geometry'].y[0])
+    abslon = np.abs(nd.lon - point['geometry'].x[0])
     c = np.maximum(abslon, abslat)
 
     ([yloc], [xloc]) = np.where(c == np.min(c))
     return(nd['x'][xloc].values, nd['y'][yloc].values)
 
-def radiation_daily2hourly(location, date, ghi_dailymean):
-    return 1
+def get_ccca_values(nd, x, y, date):
+    return(nd.sel(x=nx, y=ny, time = date, method = 'nearest'))
 
-day = cftime.Datetime360Day(2050, 6, 20, 12, 0, 0, 0)
-print(day.strftime('%j'))
+def sunset_time(point, date):
+    place = suntimes.SunTimes(point['geometry'].x[0], point['geometry'].y[0], altitude=200)
+    return(place.setutc(date))
+
+def sunset_azimuth(point, date, altitude = 200):
+    location = pvlib.location.Location(
+        point['geometry'].y[0],
+        point['geometry'].x[0],
+        'Europe/Vienna',
+        altitude, #müa
+        'Vienna-Austria')
+    return(location.get_solarposition(sunset_time(point, date))['azimuth'].values[0])
+
+def rad_d2h_liu(w_s, w):
+    """
+    Calculates the ratio of daily and hourly radiation values according to:
+    B. Y. H. Liu and R. C. Jordan, “The interrelationship and characteristic
+    distribution of direct, diffuse and total solar radiation,” Solar Energy,
+    vol. 4, no. 3, pp. 1–19, 1960.
+
+    Parameters
+    ----------
+    w_s : sunset azimuth (~ sunset hour angle, where 0 = north, 180 = south)
+    w : vector of sun azimuth over 24 hours (=24 values) (~ sun hour angle)
+
+    Returns
+    -------
+    r : vector of relation values for each of the 24 hours
+    """
+    w_s_adp = w_s - 180
+    rad_w_s_adp = math.radians(w_s_adp)
+    cos_w_s = math.cos(rad_w_s_adp)
+    sin_w_s = math.sin(rad_w_s_adp)
+
+    for w_h in w:
+        w_h_adp = 180 - w_h
+        cos_w_h = math.cos(math.radians(w_h_adp))
+        r = (math.pi/24 * (cos_w_h - cos_w_s)) / ( sin_w_s - (rad_w_s_adp * cos_w_s)) # Liu Jordan formula
+
+    return(np.clip(r, a_min = 0, a_max=None))
+
+def rad_d2h_cpr(w_s, w):
+    """
+    calculates the ratio of daily and hourly radiation values according to:
+    M. Collares-Pereira and A. Rabl, “The average distribution of solar
+    radiation-correlations between diffuse and hemispherical and between
+    daily and hourly insolation values,” Solar Energy, vol. 22, no. 2,
+    pp. 155–164, 1979.
+
+    Parameters
+    ----------
+    w_s : sunset azimuth (~ sunset hour angle, where 0 = north, 180 = south)
+    w : vector of sun azimuth over 24 hours (=24 values) (~ sun hour angle)
+
+    Returns
+    -------
+    r : vector of relation values for each of the 24 hours
+    """
+    w_s_adp = w_s - 180
+    rad_w_s_adp = math.radians(w_s_adp)
+    cos_w_s = math.cos(rad_w_s_adp)
+    sin_w_s = math.sin(rad_w_s_adp)
+    w_s_cp = w_s_adp - 60
+    sin_w_s_cp = math.sin(math.radians(w_s_cp))
+    a = 0.409+(0.5016*sin_w_s_cp)
+    b = 0.6609-(0.4767*sin_w_s_cp)
+
+    for w_h in w:
+        w_h_adp = 180 - w_h
+        cos_w_h = math.cos(math.radians(w_h_adp))
+        r = (a + b * cos_w_h) * math.pi/24 * (cos_w_h - cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
+
+    return(np.clip(r_h, a_min = 0, a_max=None))
+
+
+
+
+mydate = cftime.Datetime360Day(2050, 6, 20, 12, 0, 0, 0)
+print(mydate.strftime('%j'))
 
 coords = pd.DataFrame(
     {'name': ['Vienna'],
@@ -37,23 +127,21 @@ coords = pd.DataFrame(
      'lon': [16.363449] })
 
 geometry = [Point(xy) for xy in zip(coords.lon, coords.lat)]
-coords = coords.drop(['lon', 'lat'], axis=1)
-coords = gpd.GeoDataFrame(coords, crs="epsg:4326", geometry=geometry)
+point = coords.drop(['lon', 'lat'], axis=1)
+point = gpd.GeoDataFrame(coords, crs="epsg:4326", geometry=geometry)
 
-print(coords)
+print(point)
 
 nc_file = '/home/cmikovits/Downloads/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc'
 nd = xarray.open_dataset(nc_file)
 
-nx, ny = cccanccoords(nd, coords)
-res = nd.sel(x=nx, y=ny, time = day, method = 'nearest')
-
-print(nd.title)
-
+nx, ny = calc_ccca_xy(nd, point)
+res = get_ccca_values(nd, nx, ny, mydate)
 rsds_value = res['rsds'].values
 
-place = suntimes.SunTimes(9.3, 41.6, altitude=200)
-w_s = place.setutc(day)
+w_s = sunset_azimuth(point, mydate)
+print(w_s)
+exit(0)
 
 location = pvlib.location.Location(
     coords['geometry'].y,
@@ -73,14 +161,24 @@ for date in dates:
     solar_position = location.get_solarposition(settime)
     zenith_sunset = solar_position['apparent_zenith'].values[0] #sunset azimuth
     w_s = solar_position['azimuth'].values[0]
-    print(rsds_value)
+    print('rsds', rsds_value)
 
     datetimes = pd.date_range(start=date, end=date + + datetime.timedelta(hours=23), freq='H')
     rad = {'settime': settime,
            'w_s': w_s}
-    print(rad)
+    w_s_adp = w_s - 180
+    rad_w_s_adp = math.radians(w_s_adp)
+    cos_w_s = math.cos(rad_w_s_adp)
+    sin_w_s = math.sin(rad_w_s_adp)
 
-    data = pd.DataFrame(index = datetimes, columns = {'w_h', 'z_h', 'dni_disc', 'dni_erbs', 'dhi_erbs', 'r_h'})
+    ### for collares-pereira model
+    w_s_cp = w_s_adp - 60
+    sin_w_s_cp = math.sin(math.radians(w_s_cp))
+
+    a = 0.409+(0.5016*sin_w_s_cp)
+    b = 0.6609-(0.4767*sin_w_s_cp)
+
+    data = pd.DataFrame(index = datetimes, columns = {'w_h', 'z_h', 'dni_disc', 'dni_erbs', 'dhi_erbs', 'r_h', 'G_h', 'r_cp'})
     for dt in datetimes:
         solar_position = location.get_solarposition(dt)
         w_h = solar_position['azimuth'].values[0]  ### azimuth of sun
@@ -88,9 +186,15 @@ for date in dates:
         z_h = solar_position['zenith'].values[0]   ### zenith of sun
         data['z_h'].loc[dt] = z_h
 
-        r_h = rsds_value * math.pi/24 * (math.cos(math.radians(w_h)) - math.cos(math.radians(w_s))) / ( math.sin(math.radians(w_s)) - (2 * math.pi * math.radians(w_s) / 360 * math.cos(math.radians(w_s))))
-        # formula from: https://www.hindawi.com/journals/ijp/2015/968024/ #1
-        data['r_h'].loc[dt] = np.clip(r_h, a_min = 0, a_max=None)
+        w_h_adp = 180 - w_h
+        cos_w_h = math.cos(math.radians(w_h_adp))
+        r_h = (math.pi/24 * (cos_w_h - cos_w_s)) / ( sin_w_s - (rad_w_s_adp * cos_w_s)) # Liu Jordan formula
+        r_h = np.clip(r_h, a_min = 0, a_max=None)
+
+        r_cp = (a + b * cos_w_h) * math.pi/24 * (cos_w_h - cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
+
+        # formulas from: https://www.hindawi.com/journals/ijp/2015/968024/ #1
+        data['r_h'].loc[dt] = r_h
 
         dni_disc = pvlib.irradiance.disc(
             r_h,
@@ -100,7 +204,8 @@ for date in dates:
         dni_erbs = pvlib.irradiance.erbs(r_h,z_h,dt)
         data['dni_erbs'].loc[dt] = dni_erbs['dni']
         data['dhi_erbs'].loc[dt] = dni_erbs['dhi']
-
+        data['G_h'].loc[dt] = r_h * rsds_value * 24
+        data['r_cp'].loc[dt] = r_cp
     # r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
 
     print(data)
