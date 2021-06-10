@@ -115,7 +115,72 @@ def rad_d2h_cpr(w_s, w):
 
     return(np.clip(r_h, a_min = 0, a_max=None))
 
+def calc_pvoutput(radiation_pre, temperature_pre, wind_speed_pre,lons,lats,tracking,installed_capacity_kWp):
+    """
+    calculates ac output in Wh of a PV installation either heading
+    to the ecuator and an inclination equal to the latitude or assuming
+    a single-axis tracking system for a particular location. It requires
+    time series of solar radiation, temperature (in °C at 2 m)and wind
+    speed (in m/s at 1 m altitude) as well as the coordinates of the location
+    and either 0 or 1 to define the type of tracker as input
+    """
+    location = Location(latitude=lats, longitude=lons, tz='UTC')
+    temperature = temperature_pre
+    wind_speed = wind_speed_pre
+    ghi_input = radiation_pre
+    timeindex = ghi_input.asfreq(freq='1H').index
+    dayofyear = timeindex.dayofyear
+    ephem_pv_installation = pvlib.solarposition.pyephem(timeindex,
+                                                        location.latitude,
+                                                        location.longitude,
+                                                        temperature=np.mean(temperature))
+    Zenith = ephem_pv_installation['zenith']
+    if tracking == 0:
+        slope = lats
+        if lats >= 0:
+            aspect = 0
+        elif lats < 0:
+            aspect = 180
+    elif tracking == 1:
 
+        tracker_data = pvlib.tracking.singleaxis(ephem_pv_installation['apparent_zenith'],
+                                                 ephem_pv_installation['azimuth'],
+                                                 axis_tilt=0,
+                                                 axis_azimuth=0,
+                                                 max_angle=90,
+                                                 backtrack=True,
+                                                 gcr=2.0/7.0)
+        slope = tracker_data['surface_tilt']
+        aspect = tracker_data['surface_azimuth']
+    #solartime = ephem_pv_installation['solar_time']
+    #clearsky_irrad = location.get_clearsky(timeindex)
+    #clearsky_irrad['2018-01-01'].plot()
+    dni_pre = pvlib.irradiance.disc(ghi_input,Zenith,dayofyear)['dni']
+    dhi_pre = ghi_input - dni_pre *cosd(Zenith)
+    weather = pd.DataFrame({'ghi': ghi_input,
+                        'dni': dni_pre,
+                        'dhi': dhi_pre,
+                        'temp_air': temperature,
+                        'wind_speed': wind_speed},
+                       index=timeindex)
+    #weather['2017-06-01':'2017-06-08'].plot(figsize=(18,6))
+    sandia_modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
+    cec_inverters = pvlib.pvsystem.retrieve_sam('cecinverter')
+    #the follow selection requires some sort of automatization
+    sandia_module = sandia_modules['Silevo_Triex_U300_Black__2014_']
+    #Tries with the stc where understimating the yearly sum. Decided to use the PTC
+    PTC = 280.5
+    cec_inverter = cec_inverters['ABB__MICRO_0_3_I_OUTD_US_240_240V__CEC_2014_']
+    #check that the Paco is at least equal to the STC
+    number_of_panels_1kWp = 1000/PTC
+    area_1kWp = number_of_panels_1kWp * sandia_module['Area']
+    system = PVSystem(surface_tilt=slope, surface_azimuth=aspect,
+                  module_parameters=sandia_module,
+                  inverter_parameters=cec_inverter)
+    mc = ModelChain(system, location)
+    mc.run_model(times=weather.index, weather=weather)
+    pv_output = (mc.ac * number_of_panels_1kWp * installed_capacity_kWp).fillna(0)
+    return pv_output
 
 
 mydate = cftime.Datetime360Day(2050, 6, 20, 12, 0, 0, 0)
