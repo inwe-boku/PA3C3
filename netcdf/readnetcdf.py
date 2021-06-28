@@ -41,6 +41,19 @@ def calc_ccca_xy(nd, point, csrs='epsg:4326'):
 
 
 def get_ccca_values(nd, x, y, date):
+    """
+    Calculates x and y values from a netcdf file for given coordinates from a
+    point with lat / lon values.
+    The netcdf is expected to have a format as used by the CCCA.
+
+    Parameters
+    ----------
+    nd : open netcdf file (netcdf data)
+
+    Returns
+    -------
+    x, y : values (integer)
+    """
     return(nd.sel(x=nx, y=ny, time=date, method= 'nearest'))
 
 
@@ -127,7 +140,7 @@ def rad_d2h_cpr(w_s, w):
     return(np.clip(r_h, a_min=0, a_max=None))
 
 
-def calc_pvoutput(point, tz='UTC', ts_rtw, tracking, capacity_kWp):
+def calc_pvoutput(point, ts_rtw, tracking, capacity_kWp, tz='UTC'):
     """
     calculates ac output in Wh of a PV installation either heading
     to the ecuator and an inclination equal to the latitude or assuming
@@ -206,15 +219,14 @@ def calc_pvoutput(point, tz='UTC', ts_rtw, tracking, capacity_kWp):
 
 
 
-
 mydate = cftime.Datetime360Day(2050, 6, 20, 12, 0, 0, 0)
 print(mydate.strftime('%j'))
 
 coords = pd.DataFrame(
-    {'name': ['Vienna'],
-     'lat': [48.210033],
-     'lon': [16.363449] })
-
+    {'name': ['Vienna','BruckNeudorf'],
+     'lat': [48.21003, 48.02261],
+     'lon': [16.36344, 16.83951] }
+                     )
 geometry = [Point(xy) for xy in zip(coords.lon, coords.lat)]
 point = coords.drop(['lon', 'lat'], axis=1)
 point = gpd.GeoDataFrame(coords, crs="epsg:4326", geometry=geometry)
