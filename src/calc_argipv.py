@@ -1,5 +1,7 @@
 import typer
 from pathlib import Path
+import yaml
+import os
 import xarray
 import numpy as np
 import datetime
@@ -18,6 +20,10 @@ from topocalc.viewf import viewf
 from osgeo import gdal
 
 from pprint import pprint
+
+### constants
+
+defaultpath = os.path.join(Path.home(), 'pa3c3')
 
 
 def calc_ccca_xy(nd, point, csrs='epsg:4326'):
@@ -367,23 +373,45 @@ def attic():
 
     print(system)
 
-def main(path: Path = typer.Option("~/pa3c3", "--path", "-p"),
-         debug: bool = typer.Option(False, "--debug", "-d")):
+def getyml(yamlfile):
+    with open(yamlfile, 'r') as stream:
+        yml = yaml.safe_load(stream)
+    return yml
 
-    typer.echo(f"Using {path}")
+def main(path: Path = typer.Option(defaultpath, "--path", "-p"),
+         areaname: str = typer.Option("testarea", "--area", "-a"),
+         configfile: Path = typer.Option("cfg/testcfg.yml", "--config", "-c"),
+         dbg: bool = typer.Option(False, "--debug", "-d")):
 
+    global config
+    typer.echo(f"Using {path}, configgile: {configfile}, areaname: {areaname}, and debug is {dbg}")
+    if configfile.is_file():
+        config = getyml(configfile)
+        if dbg: print(config)
+    else:
+        message = typer.style("configfile", fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " is no file"
+        typer.echo(message)
+    
+    areafile = Path(os.path.join(path, areaname, 'area.shp'))
+    if areafile.is_file():
+        area = gpd.read_file(areafile)
+    else:
+        message = typer.style(str(areafile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
+        typer.echo(message)
 
-    #parser = GooeyParser(description="My Cool GUI Program!")
-    #parser.add_argument('LanduseFile', help="Raster File with LU values", widget='FileChooser')
-    #parser.add_argument('RadiationFile', help="CCCA netcdf with radiation data", widget='FileChooser')
-    #parser.add_argument('ConfigurationFile', help="Configuration file", widget='FileChooser')
+    dhmfile = Path(os.path.join(path, 'dhm', 'dhm_at_lamb_10m_2018.tif'))
+    if not dhmfile.is_file():
+        message = typer.style(str(dhmfile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
+        typer.echo(message)
+    
+    
+    opts = gdal.DEMProcessingOptions(scale=111120)
+    slopefile = '/tmp/slope.tif'
+    gdal.DEMProcessing(slopefile, str(dhmfile), 'slope') #, options=opts)
+    
+    area.plot()
 
-
-    config = getyml(os.path.join(os.path.dirname(os.path.realpath(__file__)), configfile))
-    jrccfg = getyml(os.path.join(os.path.dirname(os.path.realpath(__file__)), jrcconfig))
-
-    areafile = os.path.join(inpdir, areaname, 'area.shp')
-    area = gpd.read_file(areafile)
+    
 
 if __name__ == "__main__":
     typer.run(main)
