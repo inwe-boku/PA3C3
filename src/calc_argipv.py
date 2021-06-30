@@ -410,7 +410,7 @@ def main(path: Path = typer.Option(defaultpath, "--path", "-p"),
     gdal.DEMProcessing(slopefile, str(dhmfile), 'slope') #, options=opts)
     
     area.plot()
-
+    plot.show()
     
 
 if __name__ == "__main__":
