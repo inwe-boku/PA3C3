@@ -12,7 +12,7 @@ import pandas as pd
 import math
 import cftime
 from shapely.geometry import Point, Polygon
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plot
 import pvlib
 from topocalc.horizon import horizon
 from topocalc.gradient import gradient_d8
@@ -48,7 +48,7 @@ def calc_ccca_xy(nd, point, csrs='epsg:4326'):
     return(nd['x'][xloc].values, nd['y'][yloc].values)
 
 
-def get_ccca_values(nd, x, y, date):
+def get_ccca_values(nd, nx, ny, date):
     """
     Calculates x and y values from a netcdf file for given coordinates from a
     point with lat / lon values.
@@ -145,7 +145,7 @@ def rad_d2h_cpr(w_s, w):
         r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h - \
              cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
 
-    return(np.clip(r_h, a_min=0, a_max=None))
+    return(np.clip(r, a_min=0, a_max=None))
 
 
 def calc_pvoutput(point, ts_rtw, tracking, capacity_kWp, tz='UTC'):
@@ -384,7 +384,7 @@ def main(path: Path = typer.Option(defaultpath, "--path", "-p"),
          dbg: bool = typer.Option(False, "--debug", "-d")):
 
     global config
-    typer.echo(f"Using {path}, configgile: {configfile}, areaname: {areaname}, and debug is {dbg}")
+    typer.echo(f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
     if configfile.is_file():
         config = getyml(configfile)
         if dbg: print(config)
@@ -408,6 +408,7 @@ def main(path: Path = typer.Option(defaultpath, "--path", "-p"),
     opts = gdal.DEMProcessingOptions(scale=111120)
     slopefile = '/tmp/slope.tif'
     gdal.DEMProcessing(slopefile, str(dhmfile), 'slope') #, options=opts)
+    
     
     area.plot()
     plot.show()
