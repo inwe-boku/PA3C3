@@ -19,11 +19,15 @@ from topocalc.gradient import gradient_d8
 from topocalc.viewf import viewf
 from osgeo import gdal
 
+import rasterio.features
+from rasterio.features import shapes
+
 from pprint import pprint
+import renspatial as rs
 
 ### constants
 
-defaultpath = os.path.join(Path.home(), 'pa3c3')
+DEFAULTPATH = os.path.join('exampledata')
 
 
 def calc_ccca_xy(nd, point, csrs='epsg:4326'):
@@ -373,24 +377,20 @@ def attic():
 
     print(system)
 
-def getyml(yamlfile):
-    with open(yamlfile, 'r') as stream:
-        yml = yaml.safe_load(stream)
-    return yml
-
-def main(path: Path = typer.Option(defaultpath, "--path", "-p"),
-         areaname: str = typer.Option("testarea", "--area", "-a"),
+def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
+         areaname: str = typer.Option("Bruckneudorf", "--area", "-a"),
          configfile: Path = typer.Option("cfg/testcfg.yml", "--config", "-c"),
          dbg: bool = typer.Option(False, "--debug", "-d")):
 
     global config
     typer.echo(f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
     if configfile.is_file():
-        config = getyml(configfile)
+        config = rs.getyml(configfile)
         if dbg: print(config)
     else:
         message = typer.style("configfile", fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " is no file"
         typer.echo(message)
+        raise typer.Exit()
     
     areafile = Path(os.path.join(path, areaname, 'area.shp'))
     if areafile.is_file():
@@ -398,20 +398,65 @@ def main(path: Path = typer.Option(defaultpath, "--path", "-p"),
     else:
         message = typer.style(str(areafile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
+        raise typer.Exit()
 
-    dhmfile = Path(os.path.join(path, 'dhm', 'dhm_at_lamb_10m_2018.tif'))
+    dhmfile = Path(os.path.join(path,areaname,'dhm.tif'))
     if not dhmfile.is_file():
         message = typer.style(str(dhmfile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
+        raise typer.Exit()
     
+    lufile = Path(os.path.join(path,areaname,'landuse.tif'))
+    if not lufile.is_file():
+        message = typer.style(str(lufile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
+        typer.echo(message)
+        raise typer.Exit()
     
+    # calculate slope from DHM
+    if dbg:
+        message = "calculating slope from dhm"
+        typer.echo(message)
     opts = gdal.DEMProcessingOptions(scale=111120)
     slopefile = '/tmp/slope.tif'
     gdal.DEMProcessing(slopefile, str(dhmfile), 'slope') #, options=opts)
+    if dbg:
+        message = "creating points"
+        typer.echo(message)
+    points = rs.pointraster(area, resolution=100)
+    print(type(lufile))
+    if dbg:
+        message = "sampling rasterpoints from landuse"
+        typer.echo(message)
+
+# Mask is a numpy array binary mask loaded however needed
+    
+    mask = None
+    with rasterio.Env():
+        with rasterio.open(str(lufile)) as src:
+            image = src.read(1) # first band
+            results = (
+            {'properties': {'raster_val': v}, 'geometry': s}
+            for i, (s, v) 
+            in enumerate(
+                shapes(image, mask=mask, transform=src.transform)))
+    geoms = list(results)
+    gpd_polygonized_raster  = gpd.GeoDataFrame.from_features(geoms)
+    polys = gpd_polygonized_raster.dissolve(by = 'raster_val')
+
+    print(polys)
+    exit()
     
     
-    area.plot()
-    plot.show()
+    
+    
+    
+    #points = rs.samplerasterpoints(points, lufile, fieldname = 'landuse', samplemethod = 5, crsl='epsg:4326')
+    
+    #points.plot()
+    #plot.show()
+    
+
+    typer.echo("finished")
     
 
 if __name__ == "__main__":
