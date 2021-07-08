@@ -25,7 +25,7 @@ from rasterio.features import shapes
 from pprint import pprint
 import renspatial as rs
 
-### constants
+# constants
 
 DEFAULTPATH = os.path.join('exampledata')
 
@@ -66,7 +66,7 @@ def get_ccca_values(nd, nx, ny, date):
     -------
     x, y : values (integer)
     """
-    return(nd.sel(x=nx, y=ny, time=date, method= 'nearest'))
+    return(nd.sel(x=nx, y=ny, time=date, method='nearest'))
 
 
 def sunset_time(point, date):
@@ -111,10 +111,10 @@ def rad_d2h_liu(w_s, w):
     for w_h in w:
         w_h_adp = 180 - w_h
         cos_w_h = math.cos(math.radians(w_h_adp))
-        r = (math.pi / 24 * (cos_w_h - cos_w_s)) / (sin_w_s - (rad_w_s_adp * cos_w_s))
+        r = (math.pi / 24 * (cos_w_h - cos_w_s)) / \
+            (sin_w_s - (rad_w_s_adp * cos_w_s))
 
     return(np.clip(r, a_min=0, a_max=None))
-
 
 
 def rad_d2h_cpr(w_s, w):
@@ -146,8 +146,8 @@ def rad_d2h_cpr(w_s, w):
     for w_h in w:
         w_h_adp = 180 - w_h
         cos_w_h = math.cos(math.radians(w_h_adp))
-        r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h - \
-             cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
+        r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h -
+                                                cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
 
     return(np.clip(r, a_min=0, a_max=None))
 
@@ -229,24 +229,29 @@ def calc_pvoutput(point, ts_rtw, tracking, capacity_kWp, tz='UTC'):
                  installed_capacity_kWp).fillna(0)
     return pv_output
 
-def writeGEO(data, path, dataname, types = {'geojson': 0, 'shape': 0, 'gpkg': 1}):
+
+def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
     if 'geojson' in types:
-        data.to_file(filename = os.path.join(path, 'geojson', dataname+'.geojson'), driver="GeoJSON")
+        data.to_file(filename=os.path.join(path, 'geojson',
+                     dataname+'.geojson'), driver="GeoJSON")
     if 'shapes' in types:
-        data.to_file(filename = os.path.join(path, 'shape', dataname+'.shp'), driver = 'ESRI Shapefile')
+        data.to_file(filename=os.path.join(
+            path, 'shape', dataname+'.shp'), driver='ESRI Shapefile')
     if 'gpkg' in types:
-        data.to_file(filename = os.path.join(path, 'data.gpkg'), layer = dataname, driver = 'GPKG')
+        data.to_file(filename=os.path.join(path, 'data.gpkg'),
+                     layer=dataname, driver='GPKG')
     return(0)
+
 
 def attic():
     mydate = cftime.Datetime360Day(2050, 6, 20, 12, 0, 0, 0)
     print(mydate.strftime('%j'))
 
     coords = pd.DataFrame(
-        {'name': ['Vienna','BruckNeudorf'],
+        {'name': ['Vienna', 'BruckNeudorf'],
          'lat': [48.21003, 48.02261],
-         'lon': [16.36344, 16.83951] }
-                         )
+         'lon': [16.36344, 16.83951]}
+    )
     geometry = [Point(xy) for xy in zip(coords.lon, coords.lat)]
     point = coords.drop(['lon', 'lat'], axis=1)
     point = gpd.GeoDataFrame(coords, crs="epsg:4326", geometry=geometry)
@@ -268,23 +273,23 @@ def attic():
         coords['geometry'].y,
         coords['geometry'].x,
         'Europe/Vienna',
-        250, #müa
+        250,  # müa
         'Vienna-Austria')
 
     dates = pd.date_range(start='2020-07-01', end='2020-07-03')
 
-
-
-    ### sun location
+    # sun location
 
     for date in dates:
         settime = place.setutc(date)
         solar_position = location.get_solarposition(settime)
-        zenith_sunset = solar_position['apparent_zenith'].values[0] #sunset azimuth
+        # sunset azimuth
+        zenith_sunset = solar_position['apparent_zenith'].values[0]
         w_s = solar_position['azimuth'].values[0]
         print('rsds', rsds_value)
 
-        datetimes = pd.date_range(start=date, end=date + + datetime.timedelta(hours=23), freq='H')
+        datetimes = pd.date_range(
+            start=date, end=date + + datetime.timedelta(hours=23), freq='H')
         rad = {'settime': settime,
                'w_s': w_s}
         w_s_adp = w_s - 180
@@ -292,27 +297,30 @@ def attic():
         cos_w_s = math.cos(rad_w_s_adp)
         sin_w_s = math.sin(rad_w_s_adp)
 
-        ### for collares-pereira model
+        # for collares-pereira model
         w_s_cp = w_s_adp - 60
         sin_w_s_cp = math.sin(math.radians(w_s_cp))
 
         a = 0.409+(0.5016*sin_w_s_cp)
         b = 0.6609-(0.4767*sin_w_s_cp)
 
-        data = pd.DataFrame(index = datetimes, columns = {'w_h', 'z_h', 'dni_disc', 'dni_erbs', 'dhi_erbs', 'r_h', 'G_h', 'r_cp'})
+        data = pd.DataFrame(index=datetimes, columns={
+                            'w_h', 'z_h', 'dni_disc', 'dni_erbs', 'dhi_erbs', 'r_h', 'G_h', 'r_cp'})
         for dt in datetimes:
             solar_position = location.get_solarposition(dt)
-            w_h = solar_position['azimuth'].values[0]  ### azimuth of sun
+            w_h = solar_position['azimuth'].values[0]  # azimuth of sun
             data['w_h'].loc[dt] = w_h
-            z_h = solar_position['zenith'].values[0]   ### zenith of sun
+            z_h = solar_position['zenith'].values[0]  # zenith of sun
             data['z_h'].loc[dt] = z_h
 
             w_h_adp = 180 - w_h
             cos_w_h = math.cos(math.radians(w_h_adp))
-            r_h = (math.pi/24 * (cos_w_h - cos_w_s)) / ( sin_w_s - (rad_w_s_adp * cos_w_s)) # Liu Jordan formula
-            r_h = np.clip(r_h, a_min = 0, a_max=None)
+            r_h = (math.pi/24 * (cos_w_h - cos_w_s)) / \
+                (sin_w_s - (rad_w_s_adp * cos_w_s))  # Liu Jordan formula
+            r_h = np.clip(r_h, a_min=0, a_max=None)
 
-            r_cp = (a + b * cos_w_h) * math.pi/24 * (cos_w_h - cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
+            r_cp = (a + b * cos_w_h) * math.pi/24 * (cos_w_h -
+                                                     cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
 
             # formulas from: https://www.hindawi.com/journals/ijp/2015/968024/ #1
             data['r_h'].loc[dt] = r_h
@@ -322,7 +330,7 @@ def attic():
                 z_h,
                 dt)['dni']
             data['dni_disc'].loc[dt] = dni_disc
-            dni_erbs = pvlib.irradiance.erbs(r_h,z_h,dt)
+            dni_erbs = pvlib.irradiance.erbs(r_h, z_h, dt)
             data['dni_erbs'].loc[dt] = dni_erbs['dni']
             data['dhi_erbs'].loc[dt] = dni_erbs['dhi']
             data['G_h'].loc[dt] = r_h * rsds_value * 24
@@ -331,20 +339,18 @@ def attic():
 
         print(data)
 
-
-
     exit(0)
-    ### horizon / terrain calculation
+    # horizon / terrain calculation
 
-    options = gdal.WarpOptions(cutlineDSName="/home/cmikovits/myshape.shp",cropToCutline=True)
+    options = gdal.WarpOptions(
+        cutlineDSName="/home/cmikovits/myshape.shp", cropToCutline=True)
     outBand = gdal.Warp(srcDSOrSrcDSTab="/home/cmikovits/GEODATA/DHMAT/dhm_at_lamb_10m_2018.tif",
-                            destNameOrDestDS="/tmp/cut.tif",
-                            options=options)
+                        destNameOrDestDS="/tmp/cut.tif",
+                        options=options)
     outBand = None
 
-
     ds = gdal.Open("/tmp/cut.tif")
-    #print(ds.info())
+    # print(ds.info())
     #gt = ds.GetGeoTransform()
     dem = np.array(ds.GetRasterBand(1).ReadAsArray())
     dem = dem.astype(np.double)
@@ -362,20 +368,21 @@ def attic():
     plt.imshow(hrz)
     plt.show()
 
-    ### PV System Modelling
+    # PV System Modelling
 
     modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
     inverter = pvlib.pvsystem.retrieve_sam('cecinverter')
     inverter = inverter['ABB__MICRO_0_25_I_OUTD_US_208__208V_']
-    temperature_m = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['open_rack_glass_glass']
-
+    temperature_m = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
+        'sapm']['open_rack_glass_glass']
 
     system = pvlib.pvsystem.PVSystem(surface_tilt=20, surface_azimuth=180,
-                                     module_parameters = modules,
-                                     inverter_parameters = inverter,
-                                     temperature_model_parameters = temperature_m)
+                                     module_parameters=modules,
+                                     inverter_parameters=inverter,
+                                     temperature_model_parameters=temperature_m)
 
     print(system)
+
 
 def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          areaname: str = typer.Option("Bruckneudorf", "--area", "-a"),
@@ -383,81 +390,90 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          dbg: bool = typer.Option(False, "--debug", "-d")):
 
     global config
-    typer.echo(f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
+    typer.echo(
+        f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
     if configfile.is_file():
         config = rs.getyml(configfile)
-        if dbg: print(config)
+        if dbg:
+            print(config)
     else:
-        message = typer.style("configfile", fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " is no file"
+        message = typer.style("configfile", fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " is no file"
         typer.echo(message)
         raise typer.Exit()
-    
+
     areafile = Path(os.path.join(path, areaname, 'area.shp'))
     if areafile.is_file():
         area = gpd.read_file(areafile)
     else:
-        message = typer.style(str(areafile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
+        message = typer.style(str(areafile), fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
         raise typer.Exit()
 
-    dhmfile = Path(os.path.join(path,areaname,'dhm.tif'))
+    dhmfile = Path(os.path.join(path, areaname, 'dhm.tif'))
     if not dhmfile.is_file():
-        message = typer.style(str(dhmfile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
+        message = typer.style(str(dhmfile), fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
         raise typer.Exit()
-    
-    lufile = Path(os.path.join(path,areaname,'landuse.tif'))
+
+    lufile = Path(os.path.join(path, areaname, 'landuse.tif'))
     if not lufile.is_file():
-        message = typer.style(str(lufile), fg=typer.colors.WHITE, bg=typer.colors.RED, bold=True) + " does not exist"
+        message = typer.style(str(lufile), fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
         raise typer.Exit()
-    
+
     # calculate slope from DHM
     if dbg:
         message = "calculating slope from dhm"
         typer.echo(message)
     opts = gdal.DEMProcessingOptions(scale=111120)
     slopefile = '/tmp/slope.tif'
-    gdal.DEMProcessing(slopefile, str(dhmfile), 'slope') #, options=opts)
+    gdal.DEMProcessing(slopefile, str(dhmfile), 'slope')  # , options=opts)
     if dbg:
         message = "creating points"
         typer.echo(message)
-    points = rs.pointraster(area, resolution=100)
-    print(type(lufile))
+    points = rs.pointraster(area, resolution=500)
     if dbg:
         message = "sampling rasterpoints from landuse"
         typer.echo(message)
 
 # Mask is a numpy array binary mask loaded however needed
-    
+
     mask = None
     with rasterio.Env():
         with rasterio.open(str(lufile)) as src:
-            image = src.read(1) # first band
+            rastercrs = src.crs
+            image = src.read(1)  # first band
             results = (
-            {'properties': {'raster_val': v}, 'geometry': s}
-            for i, (s, v) 
-            in enumerate(
-                shapes(image, mask=mask, transform=src.transform)))
+                {'properties': {'raster_val': v}, 'geometry': s}
+                for i, (s, v)
+                in enumerate(
+                    shapes(image, mask=mask, transform=src.transform)))
     geoms = list(results)
-    gpd_polygonized_raster  = gpd.GeoDataFrame.from_features(geoms)
-    polys = gpd_polygonized_raster.dissolve(by = 'raster_val')
-
+    gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
+    gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs)
+    polys = gpd_polygonized_raster.dissolve(by='raster_val')
     print(polys)
-    exit()
-    
-    
-    
-    
-    
+    polys = polys.explode()
+    print(polys)
+
+    polys = polys.to_crs('epsg:6933')
+    polys['area'] = polys['geometry'].area.astype(int)
+    polys = polys.to_crs('epsg:4326')
+    polys = polys[polys['area'] > 9999]
+    polys['compactness'] = polys.geometry.apply(rs.s_compactness)
+    rs.writeGEO(polys, '/home/cmikovits/', 'testpolys')
+
     #points = rs.samplerasterpoints(points, lufile, fieldname = 'landuse', samplemethod = 5, crsl='epsg:4326')
-    
-    #points.plot()
-    #plot.show()
-    
+
+    polys.plot(column = 'compactness')
+    plot.show()
 
     typer.echo("finished")
-    
+
 
 if __name__ == "__main__":
     typer.run(main)

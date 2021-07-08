@@ -132,6 +132,15 @@ def metre_per_degree(point):
                               (point.x + 0.5, point.y))
     return(mlat, mlon)
 
+def pp_compactness(geom): # Polsby-Popper
+    p = geom.length
+    return (4*math.pi*geom.area)/(p*p)
+    
+def s_compactness(geom): # Schwartzberg
+    p = geom.length
+    a = geom.area    
+    return 1/(geom.length/(2*math.pi*math.sqrt(geom.area/math.pi)))
+
 
 def nlatlon_gridpoints(polygon, resolution=100):
     """
@@ -448,9 +457,9 @@ def getghsnames(polygons, ghspolys):
     return(namepolys[['location', 'index_right']])
 
 def writeGEO(data, path, dataname):
-    data.to_file(filename = os.path.join(path, 'geojson', dataname+'.geojson'), driver="GeoJSON")
-    data.to_file(filename=os.path.join(path, dataname + '.shp'),
-                 driver='ESRI Shapefile')
+    #data.to_file(filename = os.path.join(path, 'geojson', dataname+'.geojson'), driver="GeoJSON")
+    #data.to_file(filename=os.path.join(path, dataname + '.shp'),
+    #             driver='ESRI Shapefile')
     data.to_file(filename = os.path.join(path, 'data.gpkg'), layer = dataname, driver = 'GPKG')
     return(0)
 
