@@ -10,6 +10,7 @@
 . create regular points on area
 . landuse calculations
 .. transform LU raster to LU polygons
+.. filter land use values
 .. dissolve polygons
 .. explode polygons (multipart to singlepart)
 .. calculate area & filter
