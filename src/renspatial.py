@@ -291,7 +291,7 @@ def samplerasterpoints(points, rasterfile,
     return(points)
 
 
-def analysepoints(gdf, infield='alt', outfield='res_alt', op='lt',
+def analysevector(gdf, infield='alt', outfield='res_alt', op='lt',
                   cmp='multi', vals=[2000], perc=0.6):
     """
     Takes a geodataframe and cross-checks values from the fieldname
@@ -316,7 +316,7 @@ def analysepoints(gdf, infield='alt', outfield='res_alt', op='lt',
     gdf: geopandas geoseries
         with a new column
     """
-    logger.info("point analysis for fieldname: %s", infield)
+    #logger.info("point analysis for fieldname: %s", infield)
     funs = {'lt': operator.lt,
             'le': operator.le,
             'eq': operator.eq,
@@ -329,6 +329,7 @@ def analysepoints(gdf, infield='alt', outfield='res_alt', op='lt',
             'mean': statistics.mean, 'median': statistics.median}
     cmpslist = list(cmps.keys())
     singleops = ['lt', 'le', 'eq', 'ne', 'ge', 'gt']
+    print(vals)
     for idx, row in gdf.iterrows():
         result = False
         if op == 'countOf':
@@ -351,8 +352,8 @@ def analysepoints(gdf, infield='alt', outfield='res_alt', op='lt',
                 result = True
         else:
             result = json.dumps(result)
-        logger.info("comparison: %s %s %s, result: %s of %s >= %s is %s",
-                    dats, op, vals, count, len(dats), perc, result)
+        #logger.info("comparison: %s %s %s, result: %s of %s >= %s is %s",
+        #            dats, op, vals, count, len(dats), perc, result)
         gdf.at[idx, outfield] = result
     return(gdf)
 

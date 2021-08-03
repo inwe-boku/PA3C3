@@ -1,5 +1,6 @@
 import typer
 from pathlib import Path
+import json
 import yaml
 import os
 import xarray
@@ -426,19 +427,19 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     # calculate slope from DHM
-    if dbg:
-        message = "calculating slope from dhm"
-        typer.echo(message)
-    opts = gdal.DEMProcessingOptions(scale=111120)
-    slopefile = '/tmp/slope.tif'
-    gdal.DEMProcessing(slopefile, str(dhmfile), 'slope')  # , options=opts)
-    if dbg:
-        message = "creating points"
-        typer.echo(message)
-    points = rs.pointraster(area, resolution=500)
-    if dbg:
-        message = "sampling rasterpoints from landuse"
-        typer.echo(message)
+    #if dbg:
+    #    message = "calculating slope from dhm"
+    #    typer.echo(message)
+    #opts = gdal.DEMProcessingOptions(scale=111120)
+    #slopefile = '/tmp/slope.tif'
+    #gdal.DEMProcessing(slopefile, str(dhmfile), 'slope')  # , options=opts)
+    #if dbg:
+    #    message = "creating points"
+    #    typer.echo(message)
+    #points = rs.pointraster(area, resolution=500)
+    #if dbg:
+    #    message = "sampling rasterpoints from landuse"
+    #    typer.echo(message)
 
 # Mask is a numpy array binary mask loaded however needed
 
@@ -448,28 +449,29 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             rastercrs = src.crs
             image = src.read(1)  # first band
             results = (
-                {'properties': {'raster_val': v}, 'geometry': s}
+                {'properties': {'landuse': int(v), 'lujson': json.dumps([int(v)])}, 'geometry': s}
                 for i, (s, v)
                 in enumerate(
                     shapes(image, mask=mask, transform=src.transform)))
     geoms = list(results)
     gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
     gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs)
-    polys = gpd_polygonized_raster.dissolve(by='raster_val')
-    print(polys)
+    polys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='PVlu', op='contains',
+                  cmp='none', vals=config['landuse']['free'])
+    polys = gpd_polygonized_raster.dissolve(by='landuse')
     polys = polys.explode()
-    print(polys)
 
     polys = polys.to_crs('epsg:6933')
     polys['area'] = polys['geometry'].area.astype(int)
     polys = polys.to_crs('epsg:4326')
-    polys = polys[polys['area'] > 9999]
+    polys = polys[polys['area'] > config['landuse']['minarea']]
     polys['compactness'] = polys.geometry.apply(rs.s_compactness)
-    rs.writeGEO(polys, '/home/cmikovits/', 'testpolys')
+    polys = polys[polys['compactness'] > config['landuse']['mincompactness']]
+    rs.writeGEO(polys, '/home/cmikovits/pa3c3out', 'testpolys')
 
     #points = rs.samplerasterpoints(points, lufile, fieldname = 'landuse', samplemethod = 5, crsl='epsg:4326')
 
-    polys.plot(column = 'compactness')
+    #polys.plot(column = 'compactness')
     plot.show()
 
     typer.echo("finished")
