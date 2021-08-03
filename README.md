@@ -1,6 +1,23 @@
 # PA3C3
 
-# Description
+## Workflow
+
+1) read configuration (yml)
+2) read areafile (polygon shape)
+3) read DHM (raster)
+4) read LU (raster)
+5) calculate slope from DHM
+6) create regular points on area
+7) landuse calculations
+  a) transform LU raster to LU polygons
+  b) dissolve polygons
+  c) explode polygons (multipart to singlepart)
+  d) calculate area & filter
+  e) calculate compactness (Schwartzberg algorithm) & filter
+  
+
+
+## Description
 
 ### Downscaling
 
