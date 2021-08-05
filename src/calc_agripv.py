@@ -386,7 +386,7 @@ def attic():
 
 
 def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
-         areaname: str = typer.Option("Bruckneudorf", "--area", "-a"),
+         areaname: str = typer.Option("BruckSmall", "--area", "-a"),
          configfile: Path = typer.Option("cfg/testcfg.yml", "--config", "-c"),
          dbg: bool = typer.Option(False, "--debug", "-d")):
 
@@ -396,7 +396,7 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if configfile.is_file():
         config = rs.getyml(configfile)
         if dbg:
-            print(config)
+            typer.echo(config)
     else:
         message = typer.style("configfile", fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " is no file"
@@ -404,6 +404,9 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     areafile = Path(os.path.join(path, areaname, 'area.shp'))
+    if dbg:
+        typer.echo(
+        f"Reading area: {areafile}")
     if areafile.is_file():
         area = gpd.read_file(areafile)
     else:
@@ -413,6 +416,9 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     dhmfile = Path(os.path.join(path, areaname, 'dhm.tif'))
+    if dbg:
+        typer.echo(
+        f"Reading DHM: {dhmfile}")
     if not dhmfile.is_file():
         message = typer.style(str(dhmfile), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
@@ -420,6 +426,9 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     lufile = Path(os.path.join(path, areaname, 'landuse.tif'))
+    if dbg:
+        typer.echo(
+        f"Reading LU file: {lufile}")
     if not lufile.is_file():
         message = typer.style(str(lufile), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
@@ -427,22 +436,14 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     # calculate slope from DHM
-    #if dbg:
-    #    message = "calculating slope from dhm"
-    #    typer.echo(message)
+    # if dbg:
+    #    typer.echo(
+    #    f"Calculate slop from DHM")
     #opts = gdal.DEMProcessingOptions(scale=111120)
     #slopefile = '/tmp/slope.tif'
     #gdal.DEMProcessing(slopefile, str(dhmfile), 'slope')  # , options=opts)
-    #if dbg:
-    #    message = "creating points"
-    #    typer.echo(message)
-    #points = rs.pointraster(area, resolution=500)
-    #if dbg:
-    #    message = "sampling rasterpoints from landuse"
-    #    typer.echo(message)
 
-# Mask is a numpy array binary mask loaded however needed
-
+    # Mask is a numpy array binary mask loaded however needed
     mask = None
     with rasterio.Env():
         with rasterio.open(str(lufile)) as src:
@@ -456,23 +457,48 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     geoms = list(results)
     gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
     gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs)
-    polys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='PVlu', op='contains',
+
+    # landuse selection
+    polys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='B_landuse', op='contains',
                   cmp='none', vals=config['landuse']['free'])
+    
+    # aggregation of features
     polys = gpd_polygonized_raster.dissolve(by='landuse')
     polys = polys.explode()
 
+    # area calculation & selection
     polys = polys.to_crs('epsg:6933')
     polys['area'] = polys['geometry'].area.astype(int)
     polys = polys.to_crs('epsg:4326')
-    polys = polys[polys['area'] > config['landuse']['minarea']]
+    polys['B_area'] = 0
+    polys.loc[polys['area'] > config['landuse']['minarea'], 'B_area'] = 1
+    # polys = polys[polys['area'] > config['landuse']['minarea']]
+
+    # compactness calculation & selection
     polys['compactness'] = polys.geometry.apply(rs.s_compactness)
-    polys = polys[polys['compactness'] > config['landuse']['mincompactness']]
-    rs.writeGEO(polys, '/home/cmikovits/pa3c3out', 'testpolys')
+    polys['B_compact'] = 0
+    polys.loc[polys['compactness'] > config['landuse']['mincompactness'], 'B_compact'] = 1
+    #polys = polys[polys['compactness'] > config['landuse']['mincompactness']]
+    polys['PV'] = 0
+    polys.loc[(polys['B_landuse']) & (polys['B_area']) & (polys['B_compact']), 'PV'] = 1
 
-    #points = rs.samplerasterpoints(points, lufile, fieldname = 'landuse', samplemethod = 5, crsl='epsg:4326')
+    # sample altitude & slope and filter
+    if dbg:
+        message = "creating points"
+        typer.echo(message)
 
-    #polys.plot(column = 'compactness')
-    plot.show()
+    polyscrs = polys.crs
+    for i in polys[polys['PV'] == 1].index:
+        poly = polys.loc[[i]]
+        rs.writeGEO(poly, '/home/cmikovits/pa3c3out', 'testpoly')
+        points = rs.pointraster(poly, resolution=100, crsl='epsg:4087')
+        points = rs.samplerasterpoints(points, dhmfile,
+                        fieldname='alt', samplemethod=1, crsl='epsg:4087')
+    
+    if dbg:
+        message = "sampling rasterpoints from landuse"
+        typer.echo(message)
+    rs.writeGEO(polys, '/home/cmikovits/pa3c3out', 'PVpolys')
 
     typer.echo("finished")
 

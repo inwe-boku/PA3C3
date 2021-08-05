@@ -12,4 +12,4 @@ landuse:
  # maximum slope
  maxslope: 35
  minarea: 9999
- mincompactness: 0.18
+ mincompactness: 0.22

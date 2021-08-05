@@ -11,6 +11,8 @@ import statistics
 import itertools
 import re
 import os
+import matplotlib.pyplot as plot
+
 
 import yaml
 import pathlib
@@ -158,7 +160,7 @@ def nlatlon_gridpoints(polygon, resolution=100):
     (numlat, numlon) : int tuple
         (number of points lat, number of points lon)
     """
-    mlat, mlon = metre_per_degree(polygon)
+    mlat, mlon = metre_per_degree(polygon.centroid)
     bbox = polygon.bounds
     dlat = int((bbox.maxy - bbox.miny) * mlat)
     dlon = int((bbox.maxx - bbox.minx) * mlon)
@@ -186,8 +188,9 @@ def pointraster(polygons, resolution=100, sareaID=[], crsl='epsg:4087'):
     points: geopandas geoseries points
     """
     polygons['tempid'] = 1
+    polycrs = polygons.crs
     aggpoly = polygons.dissolve(by='tempid')
-    aggpoly.to_crs(crsl)
+    aggpoly = aggpoly.to_crs(crsl)
     nlat, nlon = nlatlon_gridpoints(aggpoly, resolution=resolution)
     lats = list(np.linspace(float(aggpoly.bounds.miny),
                             float(aggpoly.bounds.maxy),
@@ -201,16 +204,22 @@ def pointraster(polygons, resolution=100, sareaID=[], crsl='epsg:4087'):
 
     lats = np.repeat(lats, nlon)
     lons = np.tile(lons, nlat)
-
     df = pd.DataFrame({'Latitude': lats, 'Longitude': lons})
     points = gpd.GeoDataFrame(df,
                               geometry=gpd.points_from_xy(df.Longitude,
                                                           df.Latitude),
-                              crs=polygons.crs)
+                              crs=crsl)
+    points = points.to_crs(crs=polycrs)
+    aggpoly = aggpoly.to_crs(crs=polycrs)
+    writeGEO(points, '/home/cmikovits/pa3c3out', 'points')
+
+    print(points.size))
+
     points = gpd.sjoin(points, polygons, how='left', op='within')
     points = points.dropna()
     points = points.reset_index()
     points = points[['geometry'] + sareaID]
+    
     logging.info('Sampling points in area: {:d}'.format(len(points)))
     return(points)
 
@@ -329,7 +338,6 @@ def analysevector(gdf, infield='alt', outfield='res_alt', op='lt',
             'mean': statistics.mean, 'median': statistics.median}
     cmpslist = list(cmps.keys())
     singleops = ['lt', 'le', 'eq', 'ne', 'ge', 'gt']
-    print(vals)
     for idx, row in gdf.iterrows():
         result = False
         if op == 'countOf':
