@@ -11,5 +11,9 @@ landuse:
  maxalt: 1950
  # maximum slope
  maxslope: 35
- minarea: 9999
- mincompactness: 0.22
+ minarea: 25000 # 9999
+ mincompactness: 0.4 #0.22
+
+# gis defaults
+gis:
+ processcrs: 'epsg:31287'

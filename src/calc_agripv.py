@@ -22,8 +22,10 @@ from osgeo import gdal
 
 import rasterio.features
 from rasterio.features import shapes
+from rasterio.warp import calculate_default_transform, reproject, Resampling
 
 from pprint import pprint
+import tempfile
 import renspatial as rs
 
 # constants
@@ -384,13 +386,49 @@ def attic():
 
     print(system)
 
+def reproj_raster(filename, dst_crs):
+    src_file = filename
+    extension = os.path.splitext(filename)[1]
+    descriptor, dst_file = tempfile.mkstemp(suffix=extension)
+    
+    with rasterio.open(src_file) as src:
+        transform, width, height = calculate_default_transform(
+            src.crs, dst_crs, src.width, src.height, *src.bounds)
+        kwargs = src.meta.copy()
+        kwargs.update({
+            'crs': dst_crs,
+            'transform': transform,
+            'width': width,
+            'height': height
+        })
+
+        with rasterio.open(dst_file, 'w', **kwargs) as dst:
+            for i in range(1, src.count + 1):
+                reproject(
+                    source=rasterio.band(src, i),
+                    destination=rasterio.band(dst, i),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs=dst_crs,
+                    resampling=Resampling.nearest)
+    return(dst_file)
+
+def slope_from_dhm(dhmname):
+    extension = os.path.splitext(dhmname)[1]
+    descriptor, slope_file = tempfile.mkstemp(suffix=extension)
+    opts = gdal.DEMProcessingOptions(scale=111120)
+    gdal.DEMProcessing(slope_file, str(dhmname), 'slope')  # , options=opts)
+    return(slope_file)
 
 def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          areaname: str = typer.Option("BruckSmall", "--area", "-a"),
          configfile: Path = typer.Option("cfg/testcfg.yml", "--config", "-c"),
-         dbg: bool = typer.Option(False, "--debug", "-d")):
+         debug: bool = typer.Option(False, "--debug", "-d")):
 
     global config
+    global dbg
+    dbg = debug
     typer.echo(
         f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
     if configfile.is_file():
@@ -409,6 +447,7 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         f"Reading area: {areafile}")
     if areafile.is_file():
         area = gpd.read_file(areafile)
+        area = area.to_crs(config['gis']['processcrs'])
     else:
         message = typer.style(str(areafile), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
@@ -419,7 +458,9 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
         f"Reading DHM: {dhmfile}")
-    if not dhmfile.is_file():
+    if dhmfile.is_file():
+        dhmfile = reproj_raster(dhmfile, config['gis']['processcrs'])
+    else:
         message = typer.style(str(dhmfile), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
@@ -429,20 +470,20 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
         f"Reading LU file: {lufile}")
-    if not lufile.is_file():
+    if lufile.is_file():
+        lufile = reproj_raster(lufile, config['gis']['processcrs'])
+    else:
         message = typer.style(str(lufile), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
         raise typer.Exit()
 
     # calculate slope from DHM
-    # if dbg:
-    #    typer.echo(
-    #    f"Calculate slop from DHM")
-    #opts = gdal.DEMProcessingOptions(scale=111120)
-    #slopefile = '/tmp/slope.tif'
-    #gdal.DEMProcessing(slopefile, str(dhmfile), 'slope')  # , options=opts)
-
+    if dbg:
+       typer.echo(
+       f"Calculate slop from DHM")
+    slopefile = slope_from_dhm(dhmfile)
+    
     # Mask is a numpy array binary mask loaded however needed
     mask = None
     with rasterio.Env():
@@ -459,46 +500,55 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs)
 
     # landuse selection
-    polys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='B_landuse', op='contains',
+    lupolys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='B_landuse', op='contains',
                   cmp='none', vals=config['landuse']['free'])
     
     # aggregation of features
-    polys = gpd_polygonized_raster.dissolve(by='landuse')
-    polys = polys.explode()
+    lupolys = gpd_polygonized_raster.dissolve(by='landuse')
+    lupolys = lupolys.explode()
 
     # area calculation & selection
-    polys = polys.to_crs('epsg:6933')
-    polys['area'] = polys['geometry'].area.astype(int)
-    polys = polys.to_crs('epsg:4326')
-    polys['B_area'] = 0
-    polys.loc[polys['area'] > config['landuse']['minarea'], 'B_area'] = 1
-    # polys = polys[polys['area'] > config['landuse']['minarea']]
+    lupolys = lupolys.to_crs('epsg:6933')
+    lupolys['area'] = lupolys['geometry'].area.astype(int)
+    lupolys = lupolys.to_crs(config['gis']['processcrs'])
+    lupolys['B_area'] = 0
+    lupolys.loc[lupolys['area'] > config['landuse']['minarea'], 'B_area'] = 1
+    # lupolys = lupolys[lupolys['area'] > config['landuse']['minarea']]
 
     # compactness calculation & selection
-    polys['compactness'] = polys.geometry.apply(rs.s_compactness)
-    polys['B_compact'] = 0
-    polys.loc[polys['compactness'] > config['landuse']['mincompactness'], 'B_compact'] = 1
-    #polys = polys[polys['compactness'] > config['landuse']['mincompactness']]
-    polys['PV'] = 0
-    polys.loc[(polys['B_landuse']) & (polys['B_area']) & (polys['B_compact']), 'PV'] = 1
+    lupolys['compactness'] = lupolys.geometry.apply(rs.s_compactness)
+    lupolys['B_compact'] = 0
+    lupolys.loc[lupolys['compactness'] > config['landuse']['mincompactness'], 'B_compact'] = 1
+    #lupolys = lupolys[lupolys['compactness'] > config['landuse']['mincompactness']]
+    lupolys['PV'] = 0
+    lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area']) & (lupolys['B_compact']), 'PV'] = 1
 
     # sample altitude & slope and filter
     if dbg:
         message = "creating points"
         typer.echo(message)
 
-    polyscrs = polys.crs
-    for i in polys[polys['PV'] == 1].index:
-        poly = polys.loc[[i]]
-        rs.writeGEO(poly, '/home/cmikovits/pa3c3out', 'testpoly')
-        points = rs.pointraster(poly, resolution=100, crsl='epsg:4087')
-        points = rs.samplerasterpoints(points, dhmfile,
-                        fieldname='alt', samplemethod=1, crsl='epsg:4087')
+    lupolyscrs = lupolys.crs
+    lupolys.reset_index(inplace=True)
+    num = 0
+    totrow = len(lupolys[lupolys['PV'] == 1])
+    for i in lupolys[lupolys['PV'] == 1].index:
+        print('Processing ',num,' of ',totrow, end="\r")
+        poly = lupolys.loc[[i]]
+        if num > 0:
+            points = points.append(rs.pointraster(poly, resolution=250))
+        else:
+            points = rs.pointraster(poly, resolution=250)
+        num += 1
+    
+    points = rs.samplerasterpoints(points, dhmfile,
+                        fieldname='alt', samplemethod=1)
     
     if dbg:
         message = "sampling rasterpoints from landuse"
         typer.echo(message)
-    rs.writeGEO(polys, '/home/cmikovits/pa3c3out', 'PVpolys')
+    rs.writeGEO(lupolys, '/home/cmikovits/pa3c3out', 'PVlupolys')
+    rs.writeGEO(points, '/home/cmikovits/pa3c3out', 'PVpoints')
 
     typer.echo("finished")
 

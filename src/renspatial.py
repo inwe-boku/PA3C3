@@ -167,7 +167,6 @@ def nlatlon_gridpoints(polygon, resolution=100):
     return(math.ceil(dlat / resolution),
            math.ceil(dlon / resolution))
 
-
 def pointraster(polygons, resolution=100, sareaID=[], crsl='epsg:4087'):
     """
     Returns a geodataframe with regular gridpoints for a (one) polygon at a
@@ -199,27 +198,29 @@ def pointraster(polygons, resolution=100, sareaID=[], crsl='epsg:4087'):
                             float(aggpoly.bounds.maxx),
                             nlon))
     logging.info('resolution: {:.2f} m;\n\
-                 \tgridsize: {:d}x{:d}\n\
-                 \tpoints: {:d}'.format(resolution, nlat, nlon, nlat * nlon))
+                \tgridsize: {:d}x{:d}\n\
+                \tpoints: {:d}'.format(resolution, nlat, nlon, nlat * nlon))
 
     lats = np.repeat(lats, nlon)
     lons = np.tile(lons, nlat)
     df = pd.DataFrame({'Latitude': lats, 'Longitude': lons})
     points = gpd.GeoDataFrame(df,
-                              geometry=gpd.points_from_xy(df.Longitude,
-                                                          df.Latitude),
-                              crs=crsl)
+                            geometry=gpd.points_from_xy(df.Longitude,
+                                                        df.Latitude),
+                            crs=crsl)
     points = points.to_crs(crs=polycrs)
+    points = points[['geometry']]
     aggpoly = aggpoly.to_crs(crs=polycrs)
-    writeGEO(points, '/home/cmikovits/pa3c3out', 'points')
-
-    print(points.size))
-
     points = gpd.sjoin(points, polygons, how='left', op='within')
     points = points.dropna()
+    if points.empty:
+        df = pd.DataFrame({'Latitude': aggpoly.centroid.y, 'Longitude': aggpoly.centroid.x})
+        points = gpd.GeoDataFrame(df,
+                              geometry=gpd.points_from_xy(df.Longitude,
+                                                          df.Latitude),
+                              crs=polycrs)
     points = points.reset_index()
     points = points[['geometry'] + sareaID]
-    
     logging.info('Sampling points in area: {:d}'.format(len(points)))
     return(points)
 
@@ -250,8 +251,10 @@ def samplerasterpoints(points, rasterfile,
     points: geopandas geoseries points
         with new column fieldname and sampleresults as string (json list)
     """
-    pts = points.to_crs(crsl)
-    dist = int(nearestpoints(pts, pts, neighbor=2)['ndst'].mean() / 2)
+    dist = 10
+    if len(points) > 1:
+        pts = points.to_crs(crsl)
+        dist = int(nearestpoints(pts, pts, neighbor=2)['ndst'].mean() / 2)
     #vrt = gdal.BuildVRT("/vsimem/temp.vrt", rasterfiles) # build virtual raster from several files
     #gdal.Translate('/vsimem/myvirt.vrt', vrt, format='VRT')
     #vrt = None # close raster again, necessary step
@@ -259,15 +262,15 @@ def samplerasterpoints(points, rasterfile,
     gt = ds.GetGeoTransform()
     rb = ds.GetRasterBand(1)
     proj = osr.SpatialReference(wkt=ds.GetProjection())
+    #if dbg:
     print('rastercrs: ', proj.GetAttrValue('AUTHORITY',1))
     bbox = shapely.geometry.polygon.Polygon([
         (points.bounds.miny.min(), points.bounds.minx.min()),
         (points.bounds.miny.min(), points.bounds.maxx.max()),
         (points.bounds.maxy.max(), points.bounds.minx.min()),
         (points.bounds.maxy.max(), points.bounds.maxx.max())])
-    poly = gpd.GeoDataFrame(crs=points.crs)
-    poly['geometry'] = None
-    poly.loc[0, 'geometry'] = bbox
+    poly = gpd.GeoDataFrame(geometry=[bbox])
+    poly = poly.set_crs(points.crs)
     mlat, mlon = metre_per_degree(poly)
     tups = [(0, 0)]
     if (samplemethod == 2):
@@ -297,6 +300,7 @@ def samplerasterpoints(points, rasterfile,
         intlist = json.dumps(intlist)
         points[fieldname] = points[fieldname].astype(str)
         points.at[idx, fieldname] = intlist
+        print(points)
     return(points)
 
 
