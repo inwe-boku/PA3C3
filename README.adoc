@@ -17,6 +17,8 @@
 .. calculate compactness (Schwartzberg algorithm) & filter
 .. calculate average slope & filter
 .. calculate altitude & filter
+. calculate sunrise/sunset for the area
+. 
   
 
 
