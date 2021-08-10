@@ -12,17 +12,19 @@ import geopandas as gpd
 import pandas as pd
 import math
 import cftime
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, box
 import matplotlib.pyplot as plot
 import pvlib
 from topocalc.horizon import horizon
 from topocalc.gradient import gradient_d8
 from topocalc.viewf import viewf
 from osgeo import gdal
+import pycrs
 
 import rasterio.features
 from rasterio.features import shapes
 from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.mask import mask
 
 from pprint import pprint
 import tempfile
@@ -31,6 +33,9 @@ import renspatial as rs
 # constants
 
 DEFAULTPATH = os.path.join('exampledata')
+
+# settings
+pd.options.mode.chained_assignment = None  # default='warn'
 
 
 def calc_ccca_xy(nd, point, csrs='epsg:4326'):
@@ -386,11 +391,12 @@ def attic():
 
     print(system)
 
+
 def reproj_raster(filename, dst_crs):
     src_file = filename
     extension = os.path.splitext(filename)[1]
     descriptor, dst_file = tempfile.mkstemp(suffix=extension)
-    
+
     with rasterio.open(src_file) as src:
         transform, width, height = calculate_default_transform(
             src.crs, dst_crs, src.width, src.height, *src.bounds)
@@ -414,12 +420,14 @@ def reproj_raster(filename, dst_crs):
                     resampling=Resampling.nearest)
     return(dst_file)
 
+
 def slope_from_dhm(dhmname):
     extension = os.path.splitext(dhmname)[1]
     descriptor, slope_file = tempfile.mkstemp(suffix=extension)
     opts = gdal.DEMProcessingOptions(scale=111120)
     gdal.DEMProcessing(slope_file, str(dhmname), 'slope')  # , options=opts)
     return(slope_file)
+
 
 def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          areaname: str = typer.Option("BruckSmall", "--area", "-a"),
@@ -444,7 +452,7 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     areafile = Path(os.path.join(path, areaname, 'area.shp'))
     if dbg:
         typer.echo(
-        f"Reading area: {areafile}")
+            f"Reading area: {areafile}")
     if areafile.is_file():
         area = gpd.read_file(areafile)
         area = area.to_crs(config['gis']['processcrs'])
@@ -457,7 +465,7 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     dhmfile = Path(os.path.join(path, areaname, 'dhm.tif'))
     if dbg:
         typer.echo(
-        f"Reading DHM: {dhmfile}")
+            f"Reading DHM: {dhmfile}")
     if dhmfile.is_file():
         dhmfile = reproj_raster(dhmfile, config['gis']['processcrs'])
     else:
@@ -469,7 +477,7 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     lufile = Path(os.path.join(path, areaname, 'landuse.tif'))
     if dbg:
         typer.echo(
-        f"Reading LU file: {lufile}")
+            f"Reading LU file: {lufile}")
     if lufile.is_file():
         lufile = reproj_raster(lufile, config['gis']['processcrs'])
     else:
@@ -480,18 +488,32 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     # calculate slope from DHM
     if dbg:
-       typer.echo(
-       f"Calculate slop from DHM")
+        typer.echo(
+            f"Calculate slope from DHM")
     slopefile = slope_from_dhm(dhmfile)
-    
+
     # Mask is a numpy array binary mask loaded however needed
+    if dbg:
+        typer.echo(
+            f"Landuse Raster to Polygons")
+
+    extension = os.path.splitext(lufile)[1]
+    descriptor, croplufile = tempfile.mkstemp(suffix=extension)
+    options = gdal.WarpOptions(
+        cutlineDSName=areafile, cropToCutline=True)
+    outBand = gdal.Warp(srcDSOrSrcDSTab=lufile,
+                        destNameOrDestDS=croplufile,
+                        options=options)
+    outBand = None
+
     mask = None
     with rasterio.Env():
-        with rasterio.open(str(lufile)) as src:
+        with rasterio.open(str(croplufile)) as src:
             rastercrs = src.crs
             image = src.read(1)  # first band
             results = (
-                {'properties': {'landuse': int(v), 'lujson': json.dumps([int(v)])}, 'geometry': s}
+                {'properties': {'landuse': int(v), 'lujson': json.dumps([
+                    int(v)])}, 'geometry': s}
                 for i, (s, v)
                 in enumerate(
                     shapes(image, mask=mask, transform=src.transform)))
@@ -499,13 +521,17 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
     gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs)
 
+    if dbg:
+        typer.echo(
+            f"Calculate landuse, area and compactness")
     # landuse selection
     lupolys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='B_landuse', op='contains',
-                  cmp='none', vals=config['landuse']['free'])
-    
+                               cmp='none', vals=config['landuse']['free'])
+
     # aggregation of features
     lupolys = gpd_polygonized_raster.dissolve(by='landuse')
     lupolys = lupolys.explode()
+    lupolys = lupolys.drop(columns=['lujson'])
 
     # area calculation & selection
     lupolys = lupolys.to_crs('epsg:6933')
@@ -513,40 +539,46 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     lupolys = lupolys.to_crs(config['gis']['processcrs'])
     lupolys['B_area'] = 0
     lupolys.loc[lupolys['area'] > config['landuse']['minarea'], 'B_area'] = 1
-    # lupolys = lupolys[lupolys['area'] > config['landuse']['minarea']]
-
+    totarea = sum(lupolys['area'])
     # compactness calculation & selection
     lupolys['compactness'] = lupolys.geometry.apply(rs.s_compactness)
     lupolys['B_compact'] = 0
-    lupolys.loc[lupolys['compactness'] > config['landuse']['mincompactness'], 'B_compact'] = 1
-    #lupolys = lupolys[lupolys['compactness'] > config['landuse']['mincompactness']]
-    lupolys['PV'] = 0
-    lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area']) & (lupolys['B_compact']), 'PV'] = 1
+    lupolys.loc[lupolys['compactness'] > config['landuse']
+                ['mincompactness'], 'B_compact'] = 1
 
     # sample altitude & slope and filter
     if dbg:
-        message = "creating points"
+        message = "Sampling altitude & slope"
         typer.echo(message)
 
-    lupolyscrs = lupolys.crs
+    # sample altitude & slope and filter
+
+    typer.echo(
+        f"\tCreating random points: {int(totarea/pow(10,5))}")
+
     lupolys.reset_index(inplace=True)
-    num = 0
-    totrow = len(lupolys[lupolys['PV'] == 1])
-    for i in lupolys[lupolys['PV'] == 1].index:
-        print('Processing ',num,' of ',totrow, end="\r")
-        poly = lupolys.loc[[i]]
-        if num > 0:
-            points = points.append(rs.pointraster(poly, resolution=250))
-        else:
-            points = rs.pointraster(poly, resolution=250)
-        num += 1
-    
+    points = rs.randompoints(lupolys, num=int(totarea/pow(10,5)))
+    typer.echo(
+        f"\taltitude ...")
     points = rs.samplerasterpoints(points, dhmfile,
-                        fieldname='alt', samplemethod=1)
-    
-    if dbg:
-        message = "sampling rasterpoints from landuse"
-        typer.echo(message)
+                                   fieldname='altitude', samplemethod=1)
+    typer.echo(
+        f"\tslope ...")
+    points = rs.samplerasterpoints(points, slopefile,
+                                   fieldname='slope', samplemethod=1)
+    points['nidx'] = points.index
+    lupolys = rs.nearestgeom(lupolys, points, neighbor=1)
+    lupolys = lupolys.merge(
+        points[["nidx", "altitude", "slope"]], on='nidx', how='inner').drop(columns=['nidx'])
+
+    lupolys = rs.analysevector(lupolys, infield='altitude', outfield='B_altitude', op='lt',
+                               cmp='multi', vals=[2000])
+    lupolys = rs.analysevector(lupolys, infield='slope', outfield='B_slope', op='lt',
+                               cmp='multi', vals=[20])
+    lupolys['PV'] = 0
+    lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
+                & (lupolys['B_compact']) & (lupolys['B_altitude']) & (lupolys['B_slope']), 'PV'] = 1
+
     rs.writeGEO(lupolys, '/home/cmikovits/pa3c3out', 'PVlupolys')
     rs.writeGEO(points, '/home/cmikovits/pa3c3out', 'PVpoints')
 

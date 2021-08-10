@@ -13,7 +13,7 @@ import re
 import os
 import matplotlib.pyplot as plot
 
-
+import random
 import yaml
 import pathlib
 import urllib.parse
@@ -30,7 +30,8 @@ import operator
 
 import logging
 
-def nearestpolygons(matchpolygons, basepolygons, neighbor=1):
+
+def nearestgeom(match, base, neighbor=1):
     """
     Check which polygon from the first argument is nearest to
     one from the second based on the centroids.
@@ -47,12 +48,21 @@ def nearestpolygons(matchpolygons, basepolygons, neighbor=1):
     matchpolygons : geomandas geoseries of polygons
         with new columns 'nidx' and 'ndst', the index and distance (m)
     """
-    matchpoints = nearestpoints(matchpolygons['geometry'].centroid,
-                                basepolygons['geometry'].centroid,
+    if match.geom_type[0] == 'Point':
+        matchp = match
+    else:
+        matchp = match.centroid
+
+    if base.geom_type[0] == 'Point':
+        basep = base
+    else:
+        basep = base.centroid
+    matchpoints = nearestpoints(matchp,
+                                basep,
                                 neighbor)
-    matchpolygons['nidx'] = matchpoints['nidx']
-    matchpolygons['ndst'] = matchpoints['ndst']
-    return(matchpolygons)
+    match['nidx'] = matchpoints['nidx']
+    match['ndst'] = matchpoints['ndst']
+    return(match)
 
 
 def nearestpoints(matchpoints, basepoints, neighbor=1):
@@ -72,10 +82,18 @@ def nearestpoints(matchpoints, basepoints, neighbor=1):
     matchpoints : geomandas geoseries of points
         with new columns 'nidx' and 'ndst', the index and distance (m)
     """
-    nA = np.array([matchpoints['geometry'].x,
-                   matchpoints['geometry'].y]).T
-    nB = np.array([basepoints['geometry'].x,
-                   basepoints['geometry'].y]).T
+    try:
+        nA = np.array([matchpoints['geometry'].x,
+                       matchpoints['geometry'].y]).T
+    except:
+        nA = np.array([matchpoints.x,
+                       matchpoints.y]).T
+    try:
+        nB = np.array([basepoints['geometry'].x,
+                       basepoints['geometry'].y]).T
+    except:
+        nB = np.array([basepoints.x,
+                       basepoints.y]).T
     btree = sp.spatial.cKDTree(nB)
     dst, idx = btree.query(nA, k=[neighbor])
     matchpoints['nidx'] = idx
@@ -134,13 +152,15 @@ def metre_per_degree(point):
                               (point.x + 0.5, point.y))
     return(mlat, mlon)
 
-def pp_compactness(geom): # Polsby-Popper
+
+def pp_compactness(geom):  # Polsby-Popper
     p = geom.length
     return (4*math.pi*geom.area)/(p*p)
-    
-def s_compactness(geom): # Schwartzberg
+
+
+def s_compactness(geom):  # Schwartzberg
     p = geom.length
-    a = geom.area    
+    a = geom.area
     return 1/(geom.length/(2*math.pi*math.sqrt(geom.area/math.pi)))
 
 
@@ -166,6 +186,36 @@ def nlatlon_gridpoints(polygon, resolution=100):
     dlon = int((bbox.maxx - bbox.minx) * mlon)
     return(math.ceil(dlat / resolution),
            math.ceil(dlon / resolution))
+
+
+def randompoints(polygon, num=1):
+    polygon['tempid'] = 1
+    aggpoly = polygon.dissolve(by='tempid')
+    bbox = aggpoly.bounds
+    count = 0
+    lons = []
+    lats = []
+    while count < num:
+        df = pd.DataFrame({'Latitude': random.uniform(
+            bbox.miny, bbox.maxy), 'Longitude': random.uniform(bbox.minx, bbox.maxx)})
+        p = gpd.GeoDataFrame(df,
+                             geometry=gpd.points_from_xy(df.Longitude,
+                                                         df.Latitude),
+                             crs=polygon.crs)
+        p = gpd.sjoin(p, aggpoly, how='left', op='within')
+        p = p.dropna()
+        if len(p) == 1:
+            count += 1
+            lats.append(p.geometry.y)
+            lons.append(p.geometry.x)
+    df = pd.DataFrame({'Latitude': lats, 'Longitude': lons})
+    points = gpd.GeoDataFrame(df,
+                              geometry=gpd.points_from_xy(df.Longitude,
+                                                          df.Latitude),
+                              crs=polygon.crs)
+    points = points[['geometry']]
+    return(points)
+
 
 def pointraster(polygons, resolution=100, sareaID=[], crsl='epsg:4087'):
     """
@@ -205,20 +255,21 @@ def pointraster(polygons, resolution=100, sareaID=[], crsl='epsg:4087'):
     lons = np.tile(lons, nlat)
     df = pd.DataFrame({'Latitude': lats, 'Longitude': lons})
     points = gpd.GeoDataFrame(df,
-                            geometry=gpd.points_from_xy(df.Longitude,
-                                                        df.Latitude),
-                            crs=crsl)
+                              geometry=gpd.points_from_xy(df.Longitude,
+                                                          df.Latitude),
+                              crs=crsl)
     points = points.to_crs(crs=polycrs)
     points = points[['geometry']]
     aggpoly = aggpoly.to_crs(crs=polycrs)
     points = gpd.sjoin(points, polygons, how='left', op='within')
     points = points.dropna()
     if points.empty:
-        df = pd.DataFrame({'Latitude': aggpoly.centroid.y, 'Longitude': aggpoly.centroid.x})
+        df = pd.DataFrame({'Latitude': aggpoly.centroid.y,
+                          'Longitude': aggpoly.centroid.x})
         points = gpd.GeoDataFrame(df,
-                              geometry=gpd.points_from_xy(df.Longitude,
-                                                          df.Latitude),
-                              crs=polycrs)
+                                  geometry=gpd.points_from_xy(df.Longitude,
+                                                              df.Latitude),
+                                  crs=polycrs)
     points = points.reset_index()
     points = points[['geometry'] + sareaID]
     logging.info('Sampling points in area: {:d}'.format(len(points)))
@@ -255,15 +306,15 @@ def samplerasterpoints(points, rasterfile,
     if len(points) > 1:
         pts = points.to_crs(crsl)
         dist = int(nearestpoints(pts, pts, neighbor=2)['ndst'].mean() / 2)
-    #vrt = gdal.BuildVRT("/vsimem/temp.vrt", rasterfiles) # build virtual raster from several files
+    # vrt = gdal.BuildVRT("/vsimem/temp.vrt", rasterfiles) # build virtual raster from several files
     #gdal.Translate('/vsimem/myvirt.vrt', vrt, format='VRT')
-    #vrt = None # close raster again, necessary step
-    ds = gdal.Open(str(rasterfile)) # open as raster
+    # vrt = None # close raster again, necessary step
+    ds = gdal.Open(str(rasterfile))  # open as raster
     gt = ds.GetGeoTransform()
     rb = ds.GetRasterBand(1)
     proj = osr.SpatialReference(wkt=ds.GetProjection())
-    #if dbg:
-    print('rastercrs: ', proj.GetAttrValue('AUTHORITY',1))
+    # if dbg:
+    #print('rastercrs: ', proj.GetAttrValue('AUTHORITY', 1))
     bbox = shapely.geometry.polygon.Polygon([
         (points.bounds.miny.min(), points.bounds.minx.min()),
         (points.bounds.miny.min(), points.bounds.maxx.max()),
@@ -284,7 +335,7 @@ def samplerasterpoints(points, rasterfile,
     points[fieldname] = np.nan
     for idx, row in points.iterrows():
         logging.info('sampling %s for point %d of %d',
-                    fieldname, int(format(idx + 1)), int(len(points)))
+                     fieldname, int(format(idx + 1)), int(len(points)))
         intlist = []
         for tup in tups:
             py = int((row.geometry.y +
@@ -293,14 +344,16 @@ def samplerasterpoints(points, rasterfile,
             px = int((row.geometry.x +
                       tup[1] * mlon * dist -
                       gt[0]) / gt[1])
-            intval = int(struct.unpack(
-                  'h', rb.ReadRaster(px, py, 1, 1,
-                                     buf_type=gdal.GDT_UInt16))[0])
+            try:
+                intval = int(struct.unpack(
+                    'h', rb.ReadRaster(px, py, 1, 1,
+                                       buf_type=gdal.GDT_UInt16))[0])
+            except:
+                intval = 0
             intlist.append(intval)
         intlist = json.dumps(intlist)
         points[fieldname] = points[fieldname].astype(str)
         points.at[idx, fieldname] = intlist
-        print(points)
     return(points)
 
 
@@ -343,7 +396,7 @@ def analysevector(gdf, infield='alt', outfield='res_alt', op='lt',
     cmpslist = list(cmps.keys())
     singleops = ['lt', 'le', 'eq', 'ne', 'ge', 'gt']
     for idx, row in gdf.iterrows():
-        result = False
+        result = bool(0)
         if op == 'countOf':
             result = []
         count = 0
@@ -361,10 +414,10 @@ def analysevector(gdf, infield='alt', outfield='res_alt', op='lt',
                     count += 1
         if op != 'countOf':
             if (count/len(dats) >= perc):
-                result = True
+                result = bool(1)
         else:
             result = json.dumps(result)
-        #logger.info("comparison: %s %s %s, result: %s of %s >= %s is %s",
+        # logger.info("comparison: %s %s %s, result: %s of %s >= %s is %s",
         #            dats, op, vals, count, len(dats), perc, result)
         gdf.at[idx, outfield] = result
     return(gdf)
@@ -403,6 +456,7 @@ def fetchrendata(gdf, rencfg, fieldname='res_alt', fieldvals=(1, True)):
             elif outputformat == 'csv':
                 print(r.text)
 
+
 def getyml(filename):
     """
     loads a yaml file and returns it as an array containing lists, dicts, etc.
@@ -422,7 +476,8 @@ def getyml(filename):
         except yaml.YAMLError as exc:
             print(exc)
 
-def getgufnames(polygon, crsl = 'epsg:4326'):
+
+def getgufnames(polygon, crsl='epsg:4326'):
     """
     returns the filename for rasterfiles following a naming scheme of GUF by DLR
     """
@@ -445,7 +500,8 @@ def getgufnames(polygon, crsl = 'epsg:4326'):
     lat2 = float(polygon.bounds.maxy)
 
     rlon = list(range(5*math.floor(lon1/5), 5*math.ceil(lon2/5)+5, 5))
-    rlat = sorted(list(range(5*math.floor(lat1/5), 5*math.ceil(lat2/5)+5, 5)), reverse = True)
+    rlat = sorted(list(range(5*math.floor(lat1/5), 5 *
+                  math.ceil(lat2/5)+5, 5)), reverse=True)
     rlon = list(map(lonsub, rlon))
     rlat = list(map(latsub, rlat))
 
@@ -455,26 +511,30 @@ def getgufnames(polygon, crsl = 'epsg:4326'):
         j = 0
         while j < len(rlat)-1:
             names.append('GUF04_DLR_v02_' + rlon[i] + '_' + rlat[j] + '_' +
-                     rlon[i+1] + '_' + rlat[j+1] +
-                     '_OGR04.tif')
+                         rlon[i+1] + '_' + rlat[j+1] +
+                         '_OGR04.tif')
             j += 1
         i += 1
 
     return(names)
 
+
 def getghsnames(polygons, ghspolys):
     """
     returns the filename for rasterfiles following a naming scheme of GHS/ESM by JRC
     """
-    namepolys = gpd.sjoin(ghspolys, polygons) #, how='left', op='intersects')
+    namepolys = gpd.sjoin(ghspolys, polygons)  # , how='left', op='intersects')
     return(namepolys[['location', 'index_right']])
+
 
 def writeGEO(data, path, dataname):
     #data.to_file(filename = os.path.join(path, 'geojson', dataname+'.geojson'), driver="GeoJSON")
-    #data.to_file(filename=os.path.join(path, dataname + '.shp'),
+    # data.to_file(filename=os.path.join(path, dataname + '.shp'),
     #             driver='ESRI Shapefile')
-    data.to_file(filename = os.path.join(path, 'data.gpkg'), layer = dataname, driver = 'GPKG')
+    data.to_file(filename=os.path.join(path, 'data.gpkg'),
+                 layer=dataname, driver='GPKG')
     return(0)
+
 
 def getosmbuildings(area, fbuildings):
     buildings = gpd.GeoDataFrame()
@@ -534,7 +594,9 @@ def calcfreepv(pointspv, urloptions, urlbase, seasons, store, timeres):
         if dbg:
             print(lonlat)
         urloptions['mountingplace'] = 'free'
-        dataname = 'C' + 'x'.join("{!s}".format(str(v).replace('.', '_')) for (k, v) in lonlat.items())
+        dataname = 'C' + \
+            'x'.join("{!s}".format(str(v).replace('.', '_'))
+                     for (k, v) in lonlat.items())
         if dbg:
             print(dataname)
         try:
@@ -595,7 +657,9 @@ def calcbldpv(bdsample, area, urloptions, urlbase, seasons, store, timeres):
         url = urlbase + \
             urllib.parse.urlencode({**lonlat, **urloptions}).strip("'")
 
-        dataname = 'C' + 'x'.join("{!s}".format(str(v).replace('.', '_')) for (k, v) in lonlat.items())
+        dataname = 'C' + \
+            'x'.join("{!s}".format(str(v).replace('.', '_'))
+                     for (k, v) in lonlat.items())
         if dbg:
             print(dataname)
         try:
@@ -786,6 +850,5 @@ def main(resolution, areaname, inpdir, outdir, pvddir, landusefile,
     print('done')
 
 
-#if __name__ == "__main__":
+# if __name__ == "__main__":
 #    main()
-
