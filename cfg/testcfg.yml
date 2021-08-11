@@ -48,15 +48,16 @@ landuse:
       208,
       210,
       211,
+      126, #this is just for testing
     ]
   # m2 needed for one kWp
   m2kWp: 20
   # maximum altitude
   maxalt: 1950
-  # maximum slope
-  maxslope: 35
-  minarea: 25000 # 9999
-  mincompactness: 0.4 #0.22
+  # maximum slope (in percent)
+  maxslope: 20
+  minarea: 9999
+  mincompactness: 0.3 #0.22
 
 # gis defaults
 gis:

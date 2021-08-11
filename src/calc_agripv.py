@@ -205,8 +205,8 @@ def calc_pvoutput(point, ts_rtw, tracking, capacity_kWp, tz='UTC'):
                                                  gcr=2.0 / 7.0)
         slope = tracker_data['surface_tilt']
         aspect = tracker_data['surface_azimuth']
-    #solartime = solarpos['solar_time']
-    #clearsky_irrad = location.get_clearsky(timeindex)
+    # solartime = solarpos['solar_time']
+    # clearsky_irrad = location.get_clearsky(timeindex)
     # clearsky_irrad['2018-01-01'].plot()
     dni_pre = pvlib.irradiance.disc(ghi_input, Zenith, dayofyear)['dni']
     dhi_pre = ghi_input - dni_pre * cosd(Zenith)
@@ -252,38 +252,6 @@ def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
 
 
 def attic():
-    mydate = cftime.Datetime360Day(2050, 6, 20, 12, 0, 0, 0)
-    print(mydate.strftime('%j'))
-
-    coords = pd.DataFrame(
-        {'name': ['Vienna', 'BruckNeudorf'],
-         'lat': [48.21003, 48.02261],
-         'lon': [16.36344, 16.83951]}
-    )
-    geometry = [Point(xy) for xy in zip(coords.lon, coords.lat)]
-    point = coords.drop(['lon', 'lat'], axis=1)
-    point = gpd.GeoDataFrame(coords, crs="epsg:4326", geometry=geometry)
-
-    print(point)
-
-    nc_file = '/home/cmikovits/Downloads/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc'
-    nd = xarray.open_dataset(nc_file)
-
-    nx, ny = calc_ccca_xy(nd, point)
-    res = get_ccca_values(nd, nx, ny, mydate)
-    rsds_value = res['rsds'].values
-
-    w_s = sunset_azimuth(point, mydate)
-    print(w_s)
-    exit(0)
-
-    location = pvlib.location.Location(
-        coords['geometry'].y,
-        coords['geometry'].x,
-        'Europe/Vienna',
-        250,  # müa
-        'Vienna-Austria')
-
     dates = pd.date_range(start='2020-07-01', end='2020-07-03')
 
     # sun location
@@ -359,7 +327,7 @@ def attic():
 
     ds = gdal.Open("/tmp/cut.tif")
     # print(ds.info())
-    #gt = ds.GetGeoTransform()
+    # gt = ds.GetGeoTransform()
     dem = np.array(ds.GetRasterBand(1).ReadAsArray())
     dem = dem.astype(np.double)
 
@@ -368,8 +336,8 @@ def attic():
     dem_spacing = 10
 
     hrz = horizon(0, dem, dem_spacing)
-    #slope, aspect = gradient_d8(dem, dem_spacing, dem_spacing)
-    #svf, tvf = viewf(dem, spacing=dem_spacing)
+    # slope, aspect = gradient_d8(dem, dem_spacing, dem_spacing)
+    # svf, tvf = viewf(dem, spacing=dem_spacing)
 
     print(hrz)
 
@@ -429,82 +397,59 @@ def slope_from_dhm(dhmname):
     return(slope_file)
 
 
-def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
-         areaname: str = typer.Option("BruckSmall", "--area", "-a"),
-         configfile: Path = typer.Option("cfg/testcfg.yml", "--config", "-c"),
-         debug: bool = typer.Option(False, "--debug", "-d")):
+def xxx:
+    
+    nc_file = '/home/cmikovits/Downloads/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc'
+    nd = xarray.open_dataset(nc_file)
 
-    global config
-    global dbg
-    dbg = debug
-    typer.echo(
-        f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
-    if configfile.is_file():
-        config = rs.getyml(configfile)
-        if dbg:
-            typer.echo(config)
-    else:
-        message = typer.style("configfile", fg=typer.colors.WHITE,
-                              bg=typer.colors.RED, bold=True) + " is no file"
-        typer.echo(message)
-        raise typer.Exit()
+    
 
-    areafile = Path(os.path.join(path, areaname, 'area.shp'))
+    w_s = sunset_azimuth(point, mydate)
+    print(w_s)
+    exit(0)
+
+    location = pvlib.location.Location(
+        coords['geometry'].y,
+        coords['geometry'].x,
+        'Europe/Vienna',
+        250,  # müa
+        'Vienna-Austria')
+
+
+def areaselection():
+    config['files']['landusefile'] = Path(
+        os.path.join(path, areaname, 'landuse.tif'))
     if dbg:
         typer.echo(
-            f"Reading area: {areafile}")
-    if areafile.is_file():
-        area = gpd.read_file(areafile)
-        area = area.to_crs(config['gis']['processcrs'])
+            f"Reading LU file: {config['files']['landusefile']}")
+    if config['files']['landusefile'].is_file():
+        config['files']['landusefile'] = reproj_raster(
+            config['files']['landusefile'], config['gis']['processcrs'])
     else:
-        message = typer.style(str(areafile), fg=typer.colors.WHITE,
+        message = typer.style(str(config['files']['landusefile']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
         raise typer.Exit()
 
-    dhmfile = Path(os.path.join(path, areaname, 'dhm.tif'))
-    if dbg:
-        typer.echo(
-            f"Reading DHM: {dhmfile}")
-    if dhmfile.is_file():
-        dhmfile = reproj_raster(dhmfile, config['gis']['processcrs'])
-    else:
-        message = typer.style(str(dhmfile), fg=typer.colors.WHITE,
-                              bg=typer.colors.RED, bold=True) + " does not exist"
-        typer.echo(message)
-        raise typer.Exit()
-
-    lufile = Path(os.path.join(path, areaname, 'landuse.tif'))
-    if dbg:
-        typer.echo(
-            f"Reading LU file: {lufile}")
-    if lufile.is_file():
-        lufile = reproj_raster(lufile, config['gis']['processcrs'])
-    else:
-        message = typer.style(str(lufile), fg=typer.colors.WHITE,
-                              bg=typer.colors.RED, bold=True) + " does not exist"
-        typer.echo(message)
-        raise typer.Exit()
+    extension = os.path.splitext(config['files']['landusefile'])[1]
+    descriptor, croplufile = tempfile.mkstemp(suffix=extension)
+    options = gdal.WarpOptions(
+        cutlineDSName=config['files']['area'], cropToCutline=True)
+    outBand = gdal.Warp(srcDSOrSrcDSTab=config['files']['landusefile'],
+                        destNameOrDestDS=croplufile,
+                        options=options)
+    outBand = None
 
     # calculate slope from DHM
     if dbg:
         typer.echo(
             f"Calculate slope from DHM")
-    slopefile = slope_from_dhm(dhmfile)
+    config['files']['slope'] = slope_from_dhm(config['files']['dhm'])
 
     # Mask is a numpy array binary mask loaded however needed
     if dbg:
         typer.echo(
             f"Landuse Raster to Polygons")
-
-    extension = os.path.splitext(lufile)[1]
-    descriptor, croplufile = tempfile.mkstemp(suffix=extension)
-    options = gdal.WarpOptions(
-        cutlineDSName=areafile, cropToCutline=True)
-    outBand = gdal.Warp(srcDSOrSrcDSTab=lufile,
-                        destNameOrDestDS=croplufile,
-                        options=options)
-    outBand = None
 
     mask = None
     with rasterio.Env():
@@ -521,13 +466,13 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
     gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs)
 
+    # landuse selection
     if dbg:
         typer.echo(
-            f"Calculate landuse, area and compactness")
-    # landuse selection
+            f"Calculate landuse polygons")
+
     lupolys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='B_landuse', op='contains',
                                cmp='none', vals=config['landuse']['free'])
-
     # aggregation of features
     lupolys = gpd_polygonized_raster.dissolve(by='landuse')
     lupolys = lupolys.explode()
@@ -539,12 +484,15 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     lupolys = lupolys.to_crs(config['gis']['processcrs'])
     lupolys['B_area'] = 0
     lupolys.loc[lupolys['area'] > config['landuse']['minarea'], 'B_area'] = 1
-    totarea = sum(lupolys['area'])
     # compactness calculation & selection
     lupolys['compactness'] = lupolys.geometry.apply(rs.s_compactness)
     lupolys['B_compact'] = 0
     lupolys.loc[lupolys['compactness'] > config['landuse']
                 ['mincompactness'], 'B_compact'] = 1
+    lupolys['PV'] = 0
+    lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
+                & (lupolys['B_compact']), 'PV'] = 1
+    lupolys.reset_index(inplace=True)
 
     # sample altitude & slope and filter
     if dbg:
@@ -552,19 +500,17 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(message)
 
     # sample altitude & slope and filter
-
+    samples_per_ha = 0.25
     typer.echo(
-        f"\tCreating random points: {int(totarea/pow(10,5))}")
-
-    lupolys.reset_index(inplace=True)
-    points = rs.randompoints(lupolys, num=int(totarea/pow(10,5)))
+        f"\tCreating random points")
+    points = rs.randompoints(lupolys[lupolys['PV'] == 1], samples_per_ha)
     typer.echo(
         f"\taltitude ...")
-    points = rs.samplerasterpoints(points, dhmfile,
+    points = rs.samplerasterpoints(points, config['files']['dhm'],
                                    fieldname='altitude', samplemethod=1)
     typer.echo(
         f"\tslope ...")
-    points = rs.samplerasterpoints(points, slopefile,
+    points = rs.samplerasterpoints(points, config['files']['slope'],
                                    fieldname='slope', samplemethod=1)
     points['nidx'] = points.index
     lupolys = rs.nearestgeom(lupolys, points, neighbor=1)
@@ -578,6 +524,86 @@ def main(path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     lupolys['PV'] = 0
     lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
                 & (lupolys['B_compact']) & (lupolys['B_altitude']) & (lupolys['B_slope']), 'PV'] = 1
+    points = gpd.sjoin(
+        points, lupolys[lupolys['PV'] == 1], how='left', op='within')
+    points = points.dropna()
+    return(lupolys, points)
+
+
+def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
+         t_areaname: str = typer.Option("BruckSmall", "--area", "-a"),
+         t_configfile: Path = typer.Option(
+             "cfg/testcfg.yml", "--config", "-c"),
+         t_dbg: bool = typer.Option(False, "--debug", "-d")):
+
+    # define important stuff global
+    global config
+
+    global path
+    global areaname
+    global configfile
+    global dbg
+
+    path = t_path
+    areaname = t_areaname
+    configfile = t_configfile
+    dbg = t_dbg
+
+    # read config
+
+    typer.echo(
+        f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
+    if configfile.is_file():
+        config = rs.getyml(configfile)
+        if dbg:
+            typer.echo(config)
+    else:
+        message = typer.style("configfile", fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " is no file"
+        typer.echo(message)
+        raise typer.Exit()
+
+    config['files'] = {}
+    config['files']['area'] = Path(os.path.join(path, areaname, 'area.shp'))
+
+    if dbg:
+        typer.echo(
+            f"Reading area: {config['files']['area']}")
+    if config['files']['area'].is_file():
+        area = gpd.read_file(config['files']['area'])
+        area = area.to_crs(config['gis']['processcrs'])
+    else:
+        message = typer.style(str(config['files']['area']), fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " does not exist"
+        typer.echo(message)
+        raise typer.Exit()
+
+    config['files']['dhm'] = Path(os.path.join(path, areaname, 'dhm.tif'))
+    if dbg:
+        typer.echo(
+            f"Reading DHM: {config['files']['dhm']}")
+    if config['files']['dhm'].is_file():
+        config['files']['dhm'] = reproj_raster(
+            config['files']['dhm'], config['gis']['processcrs'])
+    else:
+        message = typer.style(str(config['files']['dhm']), fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " does not exist"
+        typer.echo(message)
+        raise typer.Exit()
+
+    # lupolys, points = areaselection()
+    centerpoint = area.centroid
+    print(centerpoint)
+    # sunrise / sunset at area center
+
+
+    # readNETCDF
+    nx, ny = calc_ccca_xy(nd, point)
+    res = get_ccca_values(nd, nx, ny, mydate)
+    rsds_value = res['rsds'].values
+    # crop?
+    # GHI_daily to GHI_hourly
+    # DNI+DHI hourly
 
     rs.writeGEO(lupolys, '/home/cmikovits/pa3c3out', 'PVlupolys')
     rs.writeGEO(points, '/home/cmikovits/pa3c3out', 'PVpoints')

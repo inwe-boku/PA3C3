@@ -188,31 +188,40 @@ def nlatlon_gridpoints(polygon, resolution=100):
            math.ceil(dlon / resolution))
 
 
-def randompoints(polygon, num=1):
-    polygon['tempid'] = 1
-    aggpoly = polygon.dissolve(by='tempid')
-    bbox = aggpoly.bounds
-    count = 0
+def randompoints(polygons, samples_per_ha=1, crsa='epsg:6933'):
     lons = []
     lats = []
-    while count < num:
-        df = pd.DataFrame({'Latitude': random.uniform(
-            bbox.miny, bbox.maxy), 'Longitude': random.uniform(bbox.minx, bbox.maxx)})
-        p = gpd.GeoDataFrame(df,
-                             geometry=gpd.points_from_xy(df.Longitude,
-                                                         df.Latitude),
-                             crs=polygon.crs)
-        p = gpd.sjoin(p, aggpoly, how='left', op='within')
-        p = p.dropna()
-        if len(p) == 1:
-            count += 1
-            lats.append(p.geometry.y)
-            lons.append(p.geometry.x)
-    df = pd.DataFrame({'Latitude': lats, 'Longitude': lons})
+    polygons.reset_index(inplace=True)
+
+    for i in polygons.index:
+        count = 0
+        poly = polygons.loc[[i]]
+        num = max(int(poly['area']/10000*samples_per_ha), 1)
+        bbox = poly.bounds
+        while count < num:
+            if count == 0:
+                count += 1
+                p = poly.centroid
+                lats.append(p.y)
+                lons.append(p.x)
+            else:
+                df = pd.DataFrame({'Latitude': [random.uniform(
+                    bbox.miny, bbox.maxy)], 'Longitude': [random.uniform(bbox.minx, bbox.maxx)]})
+                p = gpd.GeoDataFrame(df,
+                                     geometry=gpd.points_from_xy(df.Longitude,
+                                                                 df.Latitude),
+                                     crs=polygons.crs)
+                p = gpd.sjoin(p, poly, how='left', op='within')
+                p = p.dropna()
+                if len(p) == 1:
+                    count += 1
+                    lats.append(p.geometry.y)
+                    lons.append(p.geometry.x)
+        df = pd.DataFrame({'Latitude': lats, 'Longitude': lons})
     points = gpd.GeoDataFrame(df,
                               geometry=gpd.points_from_xy(df.Longitude,
                                                           df.Latitude),
-                              crs=polygon.crs)
+                              crs=polygons.crs)
     points = points[['geometry']]
     return(points)
 
