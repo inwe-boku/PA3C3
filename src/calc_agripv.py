@@ -19,7 +19,7 @@ from topocalc.horizon import horizon
 from topocalc.gradient import gradient_d8
 from topocalc.viewf import viewf
 from osgeo import gdal
-import pycrs
+#import pycrs
 
 import rasterio.features
 from rasterio.features import shapes
@@ -38,7 +38,7 @@ DEFAULTPATH = os.path.join('exampledata')
 pd.options.mode.chained_assignment = None  # default='warn'
 
 
-def calc_ccca_xy(nd, point, csrs='epsg:4326'):
+def calc_ccca_xy(nd, point):
     """
     Calculates x and y values from a netcdf file for given coordinates from a
     point with lat / lon values.
@@ -52,8 +52,8 @@ def calc_ccca_xy(nd, point, csrs='epsg:4326'):
     -------
     x, y : values (integer)
     """
-    abslat = np.abs(nd.lat - point['geometry'].y[0])
-    abslon = np.abs(nd.lon - point['geometry'].x[0])
+    abslat = np.abs(nd.lat - point.geometry.y)
+    abslon = np.abs(nd.lon - point.geometry.x)
     c = np.maximum(abslon, abslat)
 
     ([yloc], [xloc]) = np.where(c == np.min(c))
@@ -74,7 +74,7 @@ def get_ccca_values(nd, nx, ny, date):
     -------
     x, y : values (integer)
     """
-    return(nd.sel(x=nx, y=ny, time=date, method='nearest'))
+    return(nd.sel(x=nx, y=ny, method='nearest', time=date,))
 
 
 def sunset_time(point, date):
@@ -397,12 +397,7 @@ def slope_from_dhm(dhmname):
     return(slope_file)
 
 
-def xxx:
-    
-    nc_file = '/home/cmikovits/Downloads/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc'
-    nd = xarray.open_dataset(nc_file)
-
-    
+def xxx():
 
     w_s = sunset_azimuth(point, mydate)
     print(w_s)
@@ -465,6 +460,10 @@ def areaselection():
     geoms = list(results)
     gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
     gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs)
+    geoms = gpd_polygonized_raster.buffer(0)
+    geoms = gpd.GeoDataFrame.from_features(geoms)
+    gpd_polygonized_raster = gpd.GeoDataFrame(pd.concat(
+        [geoms, gpd_polygonized_raster[['landuse', 'lujson']]], axis=1), crs=gpd_polygonized_raster.crs)
 
     # landuse selection
     if dbg:
@@ -474,7 +473,7 @@ def areaselection():
     lupolys = rs.analysevector(gpd_polygonized_raster, infield='lujson', outfield='B_landuse', op='contains',
                                cmp='none', vals=config['landuse']['free'])
     # aggregation of features
-    lupolys = gpd_polygonized_raster.dissolve(by='landuse')
+    lupolys = lupolys.dissolve(by='landuse')
     lupolys = lupolys.explode()
     lupolys = lupolys.drop(columns=['lujson'])
 
@@ -534,37 +533,39 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_areaname: str = typer.Option("BruckSmall", "--area", "-a"),
          t_configfile: Path = typer.Option(
              "cfg/testcfg.yml", "--config", "-c"),
-         t_dbg: bool = typer.Option(False, "--debug", "-d")):
+         t_cccancfile: str = typer.Option(
+             "/data/Geodata/CCCA/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--cccanc", "-nc"),
+         t_dbg: bool = typer.Option(False, "--debug", "-d")
+         ):
 
     # define important stuff global
     global config
 
     global path
     global areaname
-    global configfile
     global dbg
 
     path = t_path
     areaname = t_areaname
-    configfile = t_configfile
     dbg = t_dbg
 
     # read config
 
     typer.echo(
-        f"Using path: {path}, configgile: {configfile}, areaname: {areaname}, and debug: {dbg}")
-    if configfile.is_file():
-        config = rs.getyml(configfile)
+        f"Using path: {path}, configgile: {t_configfile}, areaname: {areaname}, and debug: {dbg}")
+    if t_configfile.is_file():
+        config = rs.getyml(t_configfile)
         if dbg:
             typer.echo(config)
     else:
-        message = typer.style("configfile", fg=typer.colors.WHITE,
-                              bg=typer.colors.RED, bold=True) + " is no file"
+        message = "configfile " + typer.style(str(t_configfile), fg=typer.colors.WHITE,
+                                              bg=typer.colors.RED, bold=True) + " is no file"
         typer.echo(message)
         raise typer.Exit()
 
     config['files'] = {}
     config['files']['area'] = Path(os.path.join(path, areaname, 'area.shp'))
+    config['files']['cccanc'] = Path(t_cccancfile)
 
     if dbg:
         typer.echo(
@@ -574,6 +575,14 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         area = area.to_crs(config['gis']['processcrs'])
     else:
         message = typer.style(str(config['files']['area']), fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " does not exist"
+        typer.echo(message)
+        raise typer.Exit()
+
+    if config['files']['cccanc'].is_file():
+        nd = xarray.open_dataset(config['files']['cccanc'])
+    else:
+        message = typer.style(str(config['files']['cccanc']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
         raise typer.Exit()
@@ -591,16 +600,29 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(message)
         raise typer.Exit()
 
-    # lupolys, points = areaselection()
+    lupolys, points = areaselection()
     centerpoint = area.centroid
-    print(centerpoint)
     # sunrise / sunset at area center
 
-
     # readNETCDF
-    nx, ny = calc_ccca_xy(nd, point)
-    res = get_ccca_values(nd, nx, ny, mydate)
-    rsds_value = res['rsds'].values
+    datestart = cftime.Datetime360Day(2000, 1, 1, 12, 0, 0, 0)
+    dates = xarray.cftime_range(start=datestart, periods=365, freq='D')
+    points = points.to_crs(config['ccca']['crs'])
+    cccadict = []
+    nxny = {}
+    for idx,row in points.iterrows():
+        # logging.info('sampling %s for point %d of %d',
+        #             fieldname, int(format(idx + 1)), int(len(points)))
+        nxny.append(calc_ccca_xy(nd, row))
+        
+            #points.iloc[idx,'ny'] = ny
+            #res = get_ccca_values(nd, nx, ny, datestart)
+            #rsds_values = res['rsds'].values
+            #cccadict[nx, ny] = rsds_values
+    print(nxny)    
+        
+        #
+        #print(rsds_values)
     # crop?
     # GHI_daily to GHI_hourly
     # DNI+DHI hourly

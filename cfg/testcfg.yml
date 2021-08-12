@@ -1,11 +1,11 @@
 ccca:
   startyears: [2015, 2030, 2045]
   length: 5
+  crs: "epsg:4326"
 
 landuse:
   # land use fields available for PV
-  free:
-    [
+  free: [
       122,
       152,
       153,
