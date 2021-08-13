@@ -1,6 +1,6 @@
 ccca:
-  startyears: [2015, 2030, 2045]
-  length: 5
+  startyears: [2015, 2030] #, 2045]
+  timeframe: 3 # in years
   crs: "epsg:4326"
 
 landuse:

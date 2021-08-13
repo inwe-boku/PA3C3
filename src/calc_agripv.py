@@ -529,6 +529,35 @@ def areaselection():
     return(lupolys, points)
 
 
+def gendates(startyears, ylength):
+    dates = {}
+    for y in startyears:
+        startdt = cftime.Datetime360Day(y, 1, 1, 12, 0, 0, 0)
+        dates[y] = xarray.cftime_range(
+            start=startdt, periods=365*ylength, freq='D')
+    return(dates)
+
+
+def cccapoints(nd, points, daterange):
+    points = points.to_crs(config['ccca']['crs'])
+    cccadict = {}
+    for idx, row in points.iterrows():
+        # logging.info('sampling %s for point %d of %d',
+        #             fieldname, int(format(idx + 1)), int(len(points)))
+        nx, ny = calc_ccca_xy(nd, row)
+        nxnykey = str(nx)+'-'+str(ny)
+        points.loc[idx, 'nxny'] = nxnykey
+        # nxny.append(nxnykey)
+        if not nxnykey in cccadict.keys():
+            res = get_ccca_values(nd, nx, ny, daterange)
+            rsds_values = res['rsds'].values
+            cccadict[nxnykey] = rsds_values  # fill numpy ndarray
+    return(points, cccadict)
+
+
+def ghid2ghih(values):
+
+
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_areaname: str = typer.Option("BruckSmall", "--area", "-a"),
          t_configfile: Path = typer.Option(
@@ -600,35 +629,28 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(message)
         raise typer.Exit()
 
+    if dbg:
+        typer.echo(
+            f"Selecting areas")
     lupolys, points = areaselection()
     centerpoint = area.centroid
     # sunrise / sunset at area center
 
     # readNETCDF
-    datestart = cftime.Datetime360Day(2000, 1, 1, 12, 0, 0, 0)
-    dates = xarray.cftime_range(start=datestart, periods=365, freq='D')
-    points = points.to_crs(config['ccca']['crs'])
-    cccadict = []
-    nxny = {}
-    for idx,row in points.iterrows():
-        # logging.info('sampling %s for point %d of %d',
-        #             fieldname, int(format(idx + 1)), int(len(points)))
-        nxny.append(calc_ccca_xy(nd, row))
-        
-            #points.iloc[idx,'ny'] = ny
-            #res = get_ccca_values(nd, nx, ny, datestart)
-            #rsds_values = res['rsds'].values
-            #cccadict[nx, ny] = rsds_values
-    print(nxny)    
-        
-        #
-        #print(rsds_values)
-    # crop?
+    if dbg:
+        typer.echo(
+            f"Reading CCCA data")
+    dates = gendates(config['ccca']['startyears'], config['ccca']['timeframe'])
+    for year, date in dates.items():
+        points, cccadict = cccapoints(nd, points, date)
+
+    for key, values in cccadict.items():
+        hourly = ghid2ghih(values)
     # GHI_daily to GHI_hourly
     # DNI+DHI hourly
 
-    rs.writeGEO(lupolys, '/home/cmikovits/pa3c3out', 'PVlupolys')
-    rs.writeGEO(points, '/home/cmikovits/pa3c3out', 'PVpoints')
+    rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
+    rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 
     typer.echo("finished")
 
