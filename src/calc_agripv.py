@@ -556,17 +556,17 @@ def cccapoints(nd, points, daterange):
 
 
 def ghid2ghih(dvalues):
-            solar_position = location.get_solarposition(dt)
-            w_h = solar_position['azimuth'].values[0]  # azimuth of sun
-            data['w_h'].loc[dt] = w_h
-            z_h = solar_position['zenith'].values[0]  # zenith of sun
-            data['z_h'].loc[dt] = z_h
+    solar_position = location.get_solarposition(dt)
+    w_h = solar_position['azimuth'].values[0]  # azimuth of sun
+    data['w_h'].loc[dt] = w_h
+    z_h = solar_position['zenith'].values[0]  # zenith of sun
+    data['z_h'].loc[dt] = z_h
 
-            w_h_adp = 180 - w_h
-            cos_w_h = math.cos(math.radians(w_h_adp))
-            r_h = (math.pi/24 * (cos_w_h - cos_w_s)) / \
-                (sin_w_s - (rad_w_s_adp * cos_w_s))  # Liu Jordan formula
-            r_h = np.clip(r_h, a_min=0, a_max=None)
+    w_h_adp = 180 - w_h
+    cos_w_h = math.cos(math.radians(w_h_adp))
+    r_h = (math.pi/24 * (cos_w_h - cos_w_s)) / \
+        (sin_w_s - (rad_w_s_adp * cos_w_s))  # Liu Jordan formula
+    r_h = np.clip(r_h, a_min=0, a_max=None)
     return(hvalues)
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -655,8 +655,23 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     for year, date in dates.items():
         points, cccadict = cccapoints(nd, points, date)
     
-    solarpos = location.get_solarposition(dt)
+    for key, val in points.items():
+        print(key)
+        #nxnyval = points[[key]]
+        #print(nxnyval)
+
+    exit(0)
     for key, dvalues in cccadict.items():
+        print(key,dvalues)
+
+        location = pvlib.location.Location(
+        coords['geometry'].y,
+        coords['geometry'].x,
+        'Europe/Vienna',
+        250,  # müa
+        'Vienna-Austria')
+    
+        solarpos = location.get_solarposition(dt)
         hvalues = ghid2ghih(dvalues)
 
     
