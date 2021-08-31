@@ -481,17 +481,14 @@ def areaselection():
     lupolys = lupolys.to_crs('epsg:6933')
     lupolys['area'] = lupolys['geometry'].area.astype(int)
     lupolys = lupolys.to_crs(config['gis']['processcrs'])
-    lupolys['B_area'] = 0
-    lupolys.loc[lupolys['area'] > config['landuse']['minarea'], 'B_area'] = 1
+    lupolys['B_area'] = False
+    lupolys.loc[lupolys['area'] > config['landuse']
+                ['minarea'], 'B_area'] = True
     # compactness calculation & selection
     lupolys['compactness'] = lupolys.geometry.apply(rs.s_compactness)
-    lupolys['B_compact'] = 0
+    lupolys['B_compact'] = False
     lupolys.loc[lupolys['compactness'] > config['landuse']
-                ['mincompactness'], 'B_compact'] = 1
-    lupolys['PV'] = 0
-    lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
-                & (lupolys['B_compact']), 'PV'] = 1
-    lupolys.reset_index(inplace=True)
+                ['mincompactness'], 'B_compact'] = True
 
     # sample altitude & slope and filter
     if dbg:
@@ -499,10 +496,15 @@ def areaselection():
         typer.echo(message)
 
     # sample altitude & slope and filter
+    lupolys['PV'] = False
+    lupolys.loc[(lupolys['B_landuse'] == True) & (lupolys['B_area'] == True)
+                & (lupolys['B_compact'] == True), 'PV'] = True
+    lupolys.reset_index(inplace=True)
+
     samples_per_ha = 0.25
     typer.echo(
         f"\tCreating random points")
-    points = rs.randompoints(lupolys[lupolys['PV'] == 1], samples_per_ha)
+    points = rs.randompoints(lupolys[lupolys['PV']], samples_per_ha)
     typer.echo(
         f"\taltitude ...")
     points = rs.samplerasterpoints(points, config['files']['dhm'],
@@ -512,6 +514,7 @@ def areaselection():
     points = rs.samplerasterpoints(points, config['files']['slope'],
                                    fieldname='slope', samplemethod=1)
     points['nidx'] = points.index
+
     lupolys = rs.nearestgeom(lupolys, points, neighbor=1)
     lupolys = lupolys.merge(
         points[["nidx", "altitude", "slope"]], on='nidx', how='inner').drop(columns=['nidx'])
@@ -520,22 +523,31 @@ def areaselection():
                                cmp='multi', vals=[2000])
     lupolys = rs.analysevector(lupolys, infield='slope', outfield='B_slope', op='lt',
                                cmp='multi', vals=[20])
-    lupolys['PV'] = 0
+    lupolys['PV'] = False
     lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
-                & (lupolys['B_compact']) & (lupolys['B_altitude']) & (lupolys['B_slope']), 'PV'] = 1
+                & (lupolys['B_compact']) & (lupolys['B_altitude']) & (lupolys['B_slope']), 'PV'] = True
     points = gpd.sjoin(
-        points, lupolys[lupolys['PV'] == 1], how='left', op='within')
+        points, lupolys[lupolys['PV']], how='left', op='within')
+    points.drop(['altitude_left', 'nidx', 'index_right',
+                'level_1', 'ndst'], axis=1, inplace=True)
+    points.rename(columns={'slope_left': 'slope',
+                           'altitude_right': 'altitude',
+                           'slope_right': 'slope'}, inplace=True)
     points = points.dropna()
     return(lupolys, points)
 
 
 def gendates(startyears, ylength):
+    dates360 = {}
     dates = {}
     for y in startyears:
-        startdt = cftime.Datetime360Day(y, 1, 1, 12, 0, 0, 0)
-        dates[y] = xarray.cftime_range(
-            start=startdt, periods=365*ylength, freq='D')
-    return(dates)
+        startdt360 = cftime.Datetime360Day(y, 1, 1, 12, 0, 0, 0)
+        dates360[y] = xarray.cftime_range(
+            start=startdt360, periods=365*ylength, freq='D')
+        startdt = datetime.datetime.strptime(str(y)+"-01-01", "%Y-%m-%d")
+        enddt = datetime.datetime.strptime(str(y)+"-12-31", "%Y-%m-%d")
+        dates[y] = [startdt + datetime.timedelta(days=x) for x in range(0, (enddt-startdt).days)]
+    return(dates360, dates)
 
 
 def cccapoints(nd, points, daterange):
@@ -549,9 +561,13 @@ def cccapoints(nd, points, daterange):
         points.loc[idx, 'nxny'] = nxnykey
         # nxny.append(nxnykey)
         if not nxnykey in cccadict.keys():
+            #daterange = daterange.to_datetimeindex
             res = get_ccca_values(nd, nx, ny, daterange)
             rsds_values = res['rsds'].values
-            cccadict[nxnykey] = rsds_values  # fill numpy ndarray
+            cccadict[nxnykey] = {}
+            cccadict[nxnykey]['rsds'] = rsds_values  # fill numpy ndarray
+            cccadict[nxnykey]['geom'] = row.geometry
+            cccadict[nxnykey]['altitude'] = row.altitude
     return(points, cccadict)
 
 
@@ -568,6 +584,7 @@ def ghid2ghih(dvalues):
         (sin_w_s - (rad_w_s_adp * cos_w_s))  # Liu Jordan formula
     r_h = np.clip(r_h, a_min=0, a_max=None)
     return(hvalues)
+
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_areaname: str = typer.Option("BruckSmall", "--area", "-a"),
@@ -643,38 +660,52 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
             f"Selecting areas")
-    lupolys, points = areaselection()
-    centerpoint = area.centroid
-    # sunrise / sunset at area center
 
+    lupolys, points = areaselection()
+    # sunrise / sunset at area center
     # readNETCDF
     if dbg:
         typer.echo(
             f"Reading CCCA data")
-    dates = gendates(config['ccca']['startyears'], config['ccca']['timeframe'])
-    for year, date in dates.items():
-        points, cccadict = cccapoints(nd, points, date)
     
-    for key, val in points.items():
-        print(key)
-        #nxnyval = points[[key]]
-        #print(nxnyval)
+    dates360, dates = gendates(config['ccca']['startyears'], config['ccca']['timeframe'])
 
+    for year, daterange in dates360.items():
+        points, cccadict = cccapoints(nd, points, daterange)
+    
+    for year, daterange in dates.items():
+        for nxny in cccadict.keys():
+            dvalues = cccadict[nxny]['rsds']
+            geom = cccadict[nxny]['geom']
+            altitude = int(json.loads(cccadict[nxny]['altitude'])[0])
+            location = pvlib.location.Location(
+            geom.y, geom.x,
+            'UTC', altitude, nxny)
+            #print(daterange)
+            #daterange = daterange.to_pydatetime()
+            solarpos = location.get_solarposition(daterange)
+            print(solarpos)
+            
     exit(0)
-    for key, dvalues in cccadict.items():
-        print(key,dvalues)
-
+    for idx, row in points.iterrows():
+        nxny = row['nxny']
+        cccavals = cccadict[nxny]
         location = pvlib.location.Location(
-        coords['geometry'].y,
-        coords['geometry'].x,
-        'Europe/Vienna',
-        250,  # müa
-        'Vienna-Austria')
-    
+            row['geometry'].y,
+            row['geometry'].x,
+            'Europe/Vienna',
+            row['altitude'],  # müa
+            nxny)
+        for year, date in dates.items():
+            print(date)
+            solarpos = location.get_solarposition(date)
+            print(solarpos)
+        exit(0)
+
+      
+
         solarpos = location.get_solarposition(dt)
         hvalues = ghid2ghih(dvalues)
-
-    
 
     # GHI_daily to GHI_hourly
     # DNI+DHI hourly
