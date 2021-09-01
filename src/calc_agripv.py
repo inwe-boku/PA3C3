@@ -77,11 +77,11 @@ def get_ccca_values(nd, nx, ny, date):
     return(nd.sel(x=nx, y=ny, method='nearest', time=date,))
 
 
-def sunset_time(point, date):
+def sunset_time(location, date):
     place = suntimes.SunTimes(
-        point['geometry'].x[0],
-        point['geometry'].y[0],
-        altitude=200)
+        location.longitude,
+        location.latitude,
+        altitude=location.altitude)
     return(place.setutc(date))
 
 
@@ -109,20 +109,20 @@ def rad_d2h_liu(w_s, w):
 
     Returns
     -------
-    r : vector of relation values for each of the 24 hours
+    r : vector of relation values for each of the 24 hoursu
     """
     w_s_adp = w_s - 180
     rad_w_s_adp = math.radians(w_s_adp)
     cos_w_s = math.cos(rad_w_s_adp)
     sin_w_s = math.sin(rad_w_s_adp)
-
+    ratio = []
     for w_h in w:
         w_h_adp = 180 - w_h
         cos_w_h = math.cos(math.radians(w_h_adp))
         r = (math.pi / 24 * (cos_w_h - cos_w_s)) / \
             (sin_w_s - (rad_w_s_adp * cos_w_s))
-
-    return(np.clip(r, a_min=0, a_max=None))
+        ratio.append(r)
+    return(np.clip(ratio, a_min=0, a_max=None))
 
 
 def rad_d2h_cpr(w_s, w):
@@ -156,7 +156,7 @@ def rad_d2h_cpr(w_s, w):
         cos_w_h = math.cos(math.radians(w_h_adp))
         r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h -
                                                 cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
-
+        print(r)
     return(np.clip(r, a_min=0, a_max=None))
 
 
@@ -285,6 +285,7 @@ def attic():
         for dt in datetimes:
             solar_position = location.get_solarposition(dt)
             w_h = solar_position['azimuth'].values[0]  # azimuth of sun
+
             data['w_h'].loc[dt] = w_h
             z_h = solar_position['zenith'].values[0]  # zenith of sun
             data['z_h'].loc[dt] = z_h
@@ -395,20 +396,6 @@ def slope_from_dhm(dhmname):
     opts = gdal.DEMProcessingOptions(scale=111120)
     gdal.DEMProcessing(slope_file, str(dhmname), 'slope')  # , options=opts)
     return(slope_file)
-
-
-def xxx():
-
-    w_s = sunset_azimuth(point, mydate)
-    print(w_s)
-    exit(0)
-
-    location = pvlib.location.Location(
-        coords['geometry'].y,
-        coords['geometry'].x,
-        'Europe/Vienna',
-        250,  # müa
-        'Vienna-Austria')
 
 
 def areaselection():
@@ -545,8 +532,10 @@ def gendates(startyears, ylength):
         dates360[y] = xarray.cftime_range(
             start=startdt360, periods=365*ylength, freq='D')
         startdt = datetime.datetime.strptime(str(y)+"-01-01", "%Y-%m-%d")
-        enddt = datetime.datetime.strptime(str(y)+"-12-31", "%Y-%m-%d")
-        dates[y] = [startdt + datetime.timedelta(days=x) for x in range(0, (enddt-startdt).days)]
+        enddt = datetime.datetime.strptime(
+            str(y+ylength-1)+"-12-31", "%Y-%m-%d")
+        dates[y] = [
+            startdt + datetime.timedelta(days=x) for x in range(0, (enddt-startdt).days)]
     return(dates360, dates)
 
 
@@ -566,21 +555,78 @@ def cccapoints(nd, points, daterange):
             rsds_values = res['rsds'].values
             cccadict[nxnykey] = {}
             cccadict[nxnykey]['rsds'] = rsds_values  # fill numpy ndarray
+            cccadict[nxnykey]['date'] = daterange
             cccadict[nxnykey]['geom'] = row.geometry
             cccadict[nxnykey]['altitude'] = row.altitude
     return(points, cccadict)
 
 
-def ghid2ghih(dvalues):
-    solar_position = location.get_solarposition(dt)
-    w_h = solar_position['azimuth'].values[0]  # azimuth of sun
-    data['w_h'].loc[dt] = w_h
-    z_h = solar_position['zenith'].values[0]  # zenith of sun
-    data['z_h'].loc[dt] = z_h
+def ghid2ghih(dvalues, daterange, location):
+    i = 0
+    data = pd.DataFrame()
+    while i < 5:  # len(daterange):
+        date = daterange[i]
+        dval = dvalues[i]
+        # sunset azimuth
+        settime = sunset_time(location, date)
+        solar_position = location.get_solarposition(settime)
+        w_s = solar_position['azimuth'].values[0]
 
-    w_h_adp = 180 - w_h
-    cos_w_h = math.cos(math.radians(w_h_adp))
-    r_h = (math.pi/24 * (cos_w_h - cos_w_s)) / \
+        # hourly azimuth
+        datetimes = pd.date_range(
+            start=date, end=date + + datetime.timedelta(hours=23), freq='H')
+        solar_position = location.get_solarposition(datetimes)
+        w_h = solar_position['azimuth'].values  # azimuth of sun
+
+        # daily to hourly values
+        ratio = rad_d2h_liu(w_s, w_h)
+        #print(dval, ratio)
+        hvalues = dval*ratio*24
+        hdata = pd.DataFrame(hvalues, index=datetimes, columns={'GHI'})
+        data = data.append(hdata)
+        i += 1
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
+        print(data)
+    exit(0)
+
+    print(dval, datetimes, hvalues)
+    i += 1
+    exit(0)
+
+    dni_disc = pvlib.irradiance.disc(
+        r_h,
+        z_h,
+        dt)['dni']
+    data['dni_disc'].loc[dt] = dni_disc
+    dni_erbs = pvlib.irradiance.erbs(r_h, z_h, dt)
+    data['dni_erbs'].loc[dt] = dni_erbs['dni']
+    data['dhi_erbs'].loc[dt] = dni_erbs['dhi']
+    data['G_h'].loc[dt] = r_h * rsds_value * 24
+    data['r_cp'].loc[dt] = r_cp
+    print(data)
+    exit(0)
+
+    datetimes = pd.date_range(
+        start=date, end=date + + datetime.timedelta(hours=23), freq='H')
+    rad = {'settime': settime,
+           'w_s': w_s}
+    w_s_adp = w_s - 180
+    rad_w_s_adp = math.radians(w_s_adp)
+    cos_w_s = math.cos(rad_w_s_adp)
+    sin_w_s = math.sin(rad_w_s_adp)
+
+    # for collares-pereira model
+    w_s_cp = w_s_adp - 60
+    sin_w_s_cp = math.sin(math.radians(w_s_cp))
+
+    # r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
+
+    print(data)
+
+    #w_h = solar_position['azimuth'].values
+    w_h_adp = 180 - solar_position['azimuth'].values
+    cos_w_h_adp = math.cos(math.radians(w_h_adp))
+    r_h = (math.pi/24 * (cos_w_h_adp - cos_w_s)) / \
         (sin_w_s - (rad_w_s_adp * cos_w_s))  # Liu Jordan formula
     r_h = np.clip(r_h, a_min=0, a_max=None)
     return(hvalues)
@@ -667,45 +713,24 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
             f"Reading CCCA data")
-    
-    dates360, dates = gendates(config['ccca']['startyears'], config['ccca']['timeframe'])
 
+    dates360, dates = gendates(
+        config['ccca']['startyears'], config['ccca']['timeframe'])
     for year, daterange in dates360.items():
         points, cccadict = cccapoints(nd, points, daterange)
-    
+
     for year, daterange in dates.items():
         for nxny in cccadict.keys():
             dvalues = cccadict[nxny]['rsds']
             geom = cccadict[nxny]['geom']
             altitude = int(json.loads(cccadict[nxny]['altitude'])[0])
             location = pvlib.location.Location(
-            geom.y, geom.x,
-            'UTC', altitude, nxny)
-            #print(daterange)
-            #daterange = daterange.to_pydatetime()
-            solarpos = location.get_solarposition(daterange)
-            print(solarpos)
-            
-    exit(0)
-    for idx, row in points.iterrows():
-        nxny = row['nxny']
-        cccavals = cccadict[nxny]
-        location = pvlib.location.Location(
-            row['geometry'].y,
-            row['geometry'].x,
-            'Europe/Vienna',
-            row['altitude'],  # müa
-            nxny)
-        for year, date in dates.items():
-            print(date)
-            solarpos = location.get_solarposition(date)
-            print(solarpos)
-        exit(0)
+                geom.y, geom.x,
+                'UTC', altitude, nxny)
 
-      
-
-        solarpos = location.get_solarposition(dt)
-        hvalues = ghid2ghih(dvalues)
+            hvalues = ghid2ghih(dvalues, daterange, location)
+            print(hvalues)
+            exit(0)
 
     # GHI_daily to GHI_hourly
     # DNI+DHI hourly
