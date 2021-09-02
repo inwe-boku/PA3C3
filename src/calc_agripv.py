@@ -577,59 +577,26 @@ def ghid2ghih(dvalues, daterange, location):
             start=date, end=date + + datetime.timedelta(hours=23), freq='H')
         solar_position = location.get_solarposition(datetimes)
         w_h = solar_position['azimuth'].values  # azimuth of sun
+        z_h = solar_position['zenith'].values
 
         # daily to hourly values
         ratio = rad_d2h_liu(w_s, w_h)
         #print(dval, ratio)
         hvalues = dval*ratio*24
-        hdata = pd.DataFrame(hvalues, index=datetimes, columns={'GHI'})
+        tempdata = np.stack([w_h, z_h, hvalues], axis=1)
+        hdata = pd.DataFrame(data=tempdata, index=datetimes,
+                             columns=['w_h', 'z_h', 'GHI'])
         data = data.append(hdata)
         i += 1
-    with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
-        print(data)
-    exit(0)
+    return(data)
 
-    print(dval, datetimes, hvalues)
-    i += 1
-    exit(0)
 
-    dni_disc = pvlib.irradiance.disc(
-        r_h,
-        z_h,
-        dt)['dni']
-    data['dni_disc'].loc[dt] = dni_disc
-    dni_erbs = pvlib.irradiance.erbs(r_h, z_h, dt)
-    data['dni_erbs'].loc[dt] = dni_erbs['dni']
-    data['dhi_erbs'].loc[dt] = dni_erbs['dhi']
-    data['G_h'].loc[dt] = r_h * rsds_value * 24
-    data['r_cp'].loc[dt] = r_cp
-    print(data)
-    exit(0)
-
-    datetimes = pd.date_range(
-        start=date, end=date + + datetime.timedelta(hours=23), freq='H')
-    rad = {'settime': settime,
-           'w_s': w_s}
-    w_s_adp = w_s - 180
-    rad_w_s_adp = math.radians(w_s_adp)
-    cos_w_s = math.cos(rad_w_s_adp)
-    sin_w_s = math.sin(rad_w_s_adp)
-
-    # for collares-pereira model
-    w_s_cp = w_s_adp - 60
-    sin_w_s_cp = math.sin(math.radians(w_s_cp))
-
-    # r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
-
-    print(data)
-
-    #w_h = solar_position['azimuth'].values
-    w_h_adp = 180 - solar_position['azimuth'].values
-    cos_w_h_adp = math.cos(math.radians(w_h_adp))
-    r_h = (math.pi/24 * (cos_w_h_adp - cos_w_s)) / \
-        (sin_w_s - (rad_w_s_adp * cos_w_s))  # Liu Jordan formula
-    r_h = np.clip(r_h, a_min=0, a_max=None)
-    return(hvalues)
+def ghi2dni_erbs(data):  # using the erbs model from pvlib
+    dni_erbs = pvlib.irradiance.erbs(data['GHI'], data['z_h'], data.index)
+    dni_erbs.drop(['kt'], axis=1, inplace=True)
+    dni_erbs.rename(columns={"dni": "DNI", "dhi": "DHI"}, inplace=True)
+    data = pd.concat([data, dni_erbs], axis=1)
+    return(data)
 
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -708,6 +675,31 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             f"Selecting areas")
 
     lupolys, points = areaselection()
+
+    # horizon calculation for each point
+
+    angles = np.arange(-180, 180, 10)
+    #ds = gdal.Open(config['files']['dhm'])
+    #dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
+    with rasterio.open(config['files']['dhm'], 'r') as ds:
+        dem = ds.read()[0].astype(np.double)  # read all raster values
+        horangles = {}
+        for a in angles:
+            horangles[a] = horizon(a, dem, 10)
+        for idx, row in points.iterrows():
+            res = []
+            for a in angles:
+                py, px = ds.index(row.geometry.x, row.geometry.y)
+                res.append(horangles[a][(py,px)])
+            res = json.dumps(res)
+            points.at[idx, 'horizon'] = [res]
+            
+    print(points)
+
+    #print(horangles[a].shape)
+    
+    exit(0)
+
     # sunrise / sunset at area center
     # readNETCDF
     if dbg:
@@ -727,13 +719,13 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             location = pvlib.location.Location(
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
+            # GHI daily to GHI hourly
+            hdata = ghid2ghih(dvalues, daterange, location)
+            # DNI+DHI hourly
+            hdata = ghi2dni_erbs(hdata)
 
-            hvalues = ghid2ghih(dvalues, daterange, location)
-            print(hvalues)
+            print(hdata)
             exit(0)
-
-    # GHI_daily to GHI_hourly
-    # DNI+DHI hourly
 
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
