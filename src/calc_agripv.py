@@ -690,14 +690,14 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             res = []
             for a in angles:
                 py, px = ds.index(row.geometry.x, row.geometry.y)
-                res.append(horangles[a][(py,px)])
+                res.append(horangles[a][(py, px)])
             res = json.dumps(res)
             points.at[idx, 'horizon'] = [res]
-            
+
     print(points)
 
-    #print(horangles[a].shape)
-    
+    # print(horangles[a].shape)
+
     exit(0)
 
     # sunrise / sunset at area center
