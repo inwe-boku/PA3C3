@@ -564,7 +564,7 @@ def cccapoints(nd, points, daterange):
 def ghid2ghih(dvalues, daterange, location):
     i = 0
     data = pd.DataFrame()
-    while i < 5:  # len(daterange):
+    while i < len(daterange):
         date = daterange[i]
         dval = dvalues[i]
         # sunset azimuth
@@ -676,9 +676,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     lupolys, points = areaselection()
 
-    # horizon calculation for each point
+    # horizon calculation for each point (angle as COS)
 
-    angles = np.arange(-180, 180, 10)
+    angles = np.arange(-180, 170, 10)
     #ds = gdal.Open(config['files']['dhm'])
     #dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
     with rasterio.open(config['files']['dhm'], 'r') as ds:
@@ -690,15 +690,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             res = []
             for a in angles:
                 py, px = ds.index(row.geometry.x, row.geometry.y)
-                res.append(horangles[a][(py, px)])
+                res.append(math.degrees(math.acos(horangles[a][(py, px)])))
             res = json.dumps(res)
             points.at[idx, 'horizon'] = [res]
-
-    print(points)
-
-    # print(horangles[a].shape)
-
-    exit(0)
 
     # sunrise / sunset at area center
     # readNETCDF
@@ -721,11 +715,23 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
             hdata = ghid2ghih(dvalues, daterange, location)
+            hdata['location'] = geom
             # DNI+DHI hourly
             hdata = ghi2dni_erbs(hdata)
 
-            print(hdata)
-            exit(0)
+    #with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+    #    print(hdata)
+    # idx = datetime
+    for pidx, prow in points.iterrows():
+        for hidx, hrow in hdata.iterrows():
+            if (hrow['GHI'] > 0 and prow['geometry'] == hrow['location']):
+                print(hrow['GHI'], hrow['z_h'])
+                phors = json.loads(prow['horizon'])
+                for phor in phors:
+                    print(phor)
+
+            # print(row['w_h'])
+            # print(row['z_h'])
 
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
