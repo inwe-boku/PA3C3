@@ -564,7 +564,7 @@ def cccapoints(nd, points, daterange):
 def ghid2ghih(dvalues, daterange, location):
     i = 0
     data = pd.DataFrame()
-    while i < len(daterange):
+    while i < 180: #len(daterange):
         date = daterange[i]
         dval = dvalues[i]
         # sunset azimuth
@@ -719,19 +719,17 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             # DNI+DHI hourly
             hdata = ghi2dni_erbs(hdata)
 
-    #with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
     #    print(hdata)
     # idx = datetime
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
             if (hrow['GHI'] > 0 and prow['geometry'] == hrow['location']):
-                print(hrow['GHI'], hrow['z_h'])
                 phors = json.loads(prow['horizon'])
-                for phor in phors:
-                    print(phor)
-
-            # print(row['w_h'])
-            # print(row['z_h'])
+                idx = (np.abs(angles - hrow['w_h'])).argmin()
+                if phors[idx] > hrow['z_h']:
+                    print('sun above horizon: ', hidx)
+                    print('Azimuth:', hrow['w_h'], '; Terrain horizon: ', phors[idx], '; Sun horizon: ', hrow['z_h'])
 
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
