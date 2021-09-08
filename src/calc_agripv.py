@@ -490,16 +490,24 @@ def areaselection():
 
     samples_per_ha = 0.25
     typer.echo(
-        f"\tCreating random points")
+        f"\tCreating random points ...")
     points = rs.randompoints(lupolys[lupolys['PV']], samples_per_ha)
+    typer.echo(
+        f"finished")
     typer.echo(
         f"\taltitude ...")
     points = rs.samplerasterpoints(points, config['files']['dhm'],
                                    fieldname='altitude', samplemethod=1)
     typer.echo(
+        f"finished")
+    typer.echo(
         f"\tslope ...")
     points = rs.samplerasterpoints(points, config['files']['slope'],
                                    fieldname='slope', samplemethod=1)
+    typer.echo(
+        f"finished")
+    typer.echo(
+        f"\tjoining polygons and points ...")
     points['nidx'] = points.index
 
     lupolys = rs.nearestgeom(lupolys, points, neighbor=1)
@@ -521,6 +529,8 @@ def areaselection():
                            'altitude_right': 'altitude',
                            'slope_right': 'slope'}, inplace=True)
     points = points.dropna()
+    typer.echo(
+        f"finished")
     return(lupolys, points)
 
 
@@ -564,7 +574,7 @@ def cccapoints(nd, points, daterange):
 def ghid2ghih(dvalues, daterange, location):
     i = 0
     data = pd.DataFrame()
-    while i < 180: #len(daterange):
+    while i < 180:  # len(daterange):
         date = daterange[i]
         dval = dvalues[i]
         # sunset azimuth
@@ -676,17 +686,31 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     lupolys, points = areaselection()
 
-    # horizon calculation for each point (angle as COS)
+    points = points.head(5)
 
+    # horizon calculation for each point (angle as COS)
+    if dbg:
+        typer.echo(
+            f"Calculation of angles for each point")
     angles = np.arange(-180, 170, 10)
     #ds = gdal.Open(config['files']['dhm'])
     #dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
     with rasterio.open(config['files']['dhm'], 'r') as ds:
         dem = ds.read()[0].astype(np.double)  # read all raster values
+        psx, psy = ds.res
         horangles = {}
-        for a in angles:
-            horangles[a] = horizon(a, dem, 10)
+        if dbg:
+            typer.echo(
+                f"\tProcessing DEM")
+        with typer.progressbar(angles) as progressangles:    
+            for a in progressangles:
+                horangles[a] = horizon(a, dem, psx)
+        if dbg:
+            typer.echo(
+                f"\tProcessing Points")
         for idx, row in points.iterrows():
+            if dbg:
+                print(idx)
             res = []
             for a in angles:
                 py, px = ds.index(row.geometry.x, row.geometry.y)
@@ -729,7 +753,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 idx = (np.abs(angles - hrow['w_h'])).argmin()
                 if phors[idx] > hrow['z_h']:
                     print('sun above horizon: ', hidx)
-                    print('Azimuth:', hrow['w_h'], '; Terrain horizon: ', phors[idx], '; Sun horizon: ', hrow['z_h'])
+                    print('Azimuth:', hrow['w_h'], '; Terrain horizon: ',
+                          phors[idx], '; Sun horizon: ', hrow['z_h'])
 
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
