@@ -62,4 +62,3 @@ landuse:
 # gis defaults
 gis:
   processcrs: "epsg:31287"
-  demres: 10
