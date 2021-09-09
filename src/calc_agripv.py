@@ -19,7 +19,7 @@ from topocalc.horizon import horizon
 from topocalc.gradient import gradient_d8
 from topocalc.viewf import viewf
 from osgeo import gdal
-#import pycrs
+# import pycrs
 
 import rasterio.features
 from rasterio.features import shapes
@@ -560,7 +560,7 @@ def cccapoints(nd, points, daterange):
         points.loc[idx, 'nxny'] = nxnykey
         # nxny.append(nxnykey)
         if not nxnykey in cccadict.keys():
-            #daterange = daterange.to_datetimeindex
+            # daterange = daterange.to_datetimeindex
             res = get_ccca_values(nd, nx, ny, daterange)
             rsds_values = res['rsds'].values
             cccadict[nxnykey] = {}
@@ -586,12 +586,14 @@ def ghid2ghih(dvalues, daterange, location):
         datetimes = pd.date_range(
             start=date, end=date + + datetime.timedelta(hours=23), freq='H')
         solar_position = location.get_solarposition(datetimes)
-        w_h = solar_position['azimuth'].values  # azimuth of sun
-        z_h = solar_position['zenith'].values
+        # azimuth of sun
+        w_h = np.around(solar_position['azimuth'].values, decimals=2)
+        # zenith of sun
+        z_h = np.around(solar_position['zenith'].values, decimals=2)
 
         # daily to hourly values
         ratio = rad_d2h_liu(w_s, w_h)
-        #print(dval, ratio)
+        # print(dval, ratio)
         hvalues = dval*ratio*24
         tempdata = np.stack([w_h, z_h, hvalues], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
@@ -607,6 +609,98 @@ def ghi2dni_erbs(data):  # using the erbs model from pvlib
     dni_erbs.rename(columns={"dni": "DNI", "dhi": "DHI"}, inplace=True)
     data = pd.concat([data, dni_erbs], axis=1)
     return(data)
+
+
+def calcPV:
+    cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
+    cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
+
+    # 'LG Electronics Inc. LG415N2T-L5'
+    module = cecmodules['Aleo Solar S59y280']
+    # 'LG Electronics Inc : D007KEEN261 [240V]'
+    inverter = cecinverters['AEG Power Solutions: Protect MPV.150.01 [480V]']
+    temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
+        'pvsyst']['open_rack_glass_glass']
+
+    for location in coordinates:
+        latitude, longitude, name, altitude, timezone = location
+        weather = pvlib.iotools.get_pvgis_tmy(latitude, longitude,
+                                              map_variables=True)[0]
+
+        weather.index.name = "utc_time"
+        tmys.append(weather)
+
+    system = {'module': module, 'inverter': inverter, 'surface_azimuth': 180}
+    energies = {}
+    for location, weather in zip(coordinates, tmys):
+
+    latitude, longitude, name, altitude, timezone = location
+
+    system['surface_tilt'] = latitude
+
+    solpos = pvlib.solarposition.get_solarposition(
+
+        time=weather.index,
+
+        latitude=latitude,
+
+        longitude=longitude,
+
+        altitude=altitude,
+
+        temperature=weather["temp_air"],
+
+        pressure=pvlib.atmosphere.alt2pres(altitude),
+
+    )
+
+    dni_extra = pvlib.irradiance.get_extra_radiation(weather.index)
+
+    airmass = pvlib.atmosphere.get_relative_airmass(solpos['apparent_zenith'])
+
+    pressure = pvlib.atmosphere.alt2pres(altitude)
+
+    am_abs = pvlib.atmosphere.get_absolute_airmass(airmass, pressure)
+
+    aoi = pvlib.irradiance.aoi(
+        system['surface_tilt'],
+        system['surface_azimuth'],
+        solpos["apparent_zenith"],
+        solpos["azimuth"],
+    )
+
+    total_irradiance = pvlib.irradiance.get_total_irradiance(
+        system['surface_tilt'],
+        system['surface_azimuth'],
+        solpos['apparent_zenith'],
+        solpos['azimuth'],
+        weather['dni'],
+        weather['ghi'],
+        weather['dhi'],
+        dni_extra=dni_extra,
+        model='haydavies',
+    )
+
+    cell_temperature = pvlib.temperature.sapm_cell(
+        total_irradiance['poa_global'],
+        weather["temp_air"],
+        weather["wind_speed"],
+        **temperature_model_parameters,
+    )
+
+    effective_irradiance = pvlib.pvsystem.sapm_effective_irradiance(
+        total_irradiance['poa_direct'],
+        total_irradiance['poa_diffuse'],
+        am_abs,
+        aoi,
+        module,
+    )
+
+    dc = pvlib.pvsystem.sapm(effective_irradiance, cell_temperature, module)
+    ac = pvlib.inverter.sandia(dc['v_mp'], dc['p_mp'], inverter)
+    annual_energy = ac.sum()
+    energies[name] = annual_energy
+    energies = pd.Series(energies)
 
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -692,9 +786,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
             f"Calculation of angles for each point")
-    angles = np.arange(-180, 170, 10)
-    #ds = gdal.Open(config['files']['dhm'])
-    #dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
+    angles = np.arange(-180, 170, config['horizon']['numangles'])
+    # ds = gdal.Open(config['files']['dhm'])
+    # dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
     with rasterio.open(config['files']['dhm'], 'r') as ds:
         dem = ds.read()[0].astype(np.double)  # read all raster values
         psx, psy = ds.res
@@ -702,7 +796,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         if dbg:
             typer.echo(
                 f"\tProcessing DEM")
-        with typer.progressbar(angles) as progressangles:    
+        with typer.progressbar(angles) as progressangles:
             for a in progressangles:
                 horangles[a] = horizon(a, dem, psx)
         if dbg:
@@ -714,7 +808,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             res = []
             for a in angles:
                 py, px = ds.index(row.geometry.x, row.geometry.y)
-                res.append(math.degrees(math.acos(horangles[a][(py, px)])))
+                res.append(
+                    round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
             res = json.dumps(res)
             points.at[idx, 'horizon'] = [res]
 
@@ -752,9 +847,15 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 phors = json.loads(prow['horizon'])
                 idx = (np.abs(angles - hrow['w_h'])).argmin()
                 if phors[idx] > hrow['z_h']:
-                    print('sun above horizon: ', hidx)
-                    print('Azimuth:', hrow['w_h'], '; Terrain horizon: ',
-                          phors[idx], '; Sun horizon: ', hrow['z_h'])
+                    if dbg:
+                        message = (typer.style(
+                            "sun above horizon: ", bold=True) + str(hidx) +
+                            "; azimuth:" + str(hrow['w_h']) +
+                            "; Terrain horizon: " + str(phors[idx]) +
+                            "; Sun horizon: " + str(hrow['z_h']))
+                        # str(config['files']['dhm']), fg = typer.colors.WHITE,
+                        #  bg = typer.colors.RED, bold = True) + " does not exist"
+                        typer.echo(message)
 
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')

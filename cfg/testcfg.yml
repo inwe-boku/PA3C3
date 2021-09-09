@@ -59,6 +59,8 @@ landuse:
   minarea: 9999
   mincompactness: 0.3 #0.22
 
+horizon:
+  numangles: 12 # 360/12
 # gis defaults
 gis:
   processcrs: "epsg:31287"
