@@ -611,7 +611,7 @@ def ghi2dni_erbs(data):  # using the erbs model from pvlib
     return(data)
 
 
-def calcPV:
+def calcPV():
     cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
     cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
 
@@ -633,8 +633,7 @@ def calcPV:
     system = {'module': module, 'inverter': inverter, 'surface_azimuth': 180}
     energies = {}
     for location, weather in zip(coordinates, tmys):
-
-    latitude, longitude, name, altitude, timezone = location
+        latitude, longitude, name, altitude, timezone = location
 
     system['surface_tilt'] = latitude
 
@@ -701,6 +700,55 @@ def calcPV:
     annual_energy = ac.sum()
     energies[name] = annual_energy
     energies = pd.Series(energies)
+
+
+def calcPVBifacial():
+    cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
+    cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
+
+    # print(cecinverters.info(verbose=1))
+    # LG_Electronics_Inc__LG415N2T_L5
+    rows = 10
+    mods = 84
+    numinv = round(84*10/100)
+    distance = 10
+    height = 3
+    tilt = 90
+    gcr = distance/height
+    psi = pvlib.shading.masking_angle_passias(tilt, gcr)
+    shading_loss = pvlib.shading.sky_diffuse_passias(psi)
+    transposition_ratio = pvlib.irradiance.isotropic(tilt, dhi=1.0)
+    relative_diffuse = transposition_ratio * (1-shading_loss) * 100  # %
+
+    pmodule = cecmodules['LG_Electronics_Inc__LG410N2C_A5']
+    pinverter = cecinverters['LG_Electronics_Inc___D007KEEN261__240V_']
+    pinverter = pinverter * numinv
+    ptemp = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
+        'sapm']['open_rack_glass_glass']
+    parray = dict(
+        module_parameters=pmodule,
+        temperature_model_parameters=ptemp,
+        strings = rows,
+        modules_per_string = mods
+    )
+    parrays = [
+        pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(tilt, 90), name='East',
+                             **parray),
+        pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(tilt, 270), name='West',
+                             **parray),
+    ]
+    loc = pvlib.location.Location(47, -16)
+    system = pvlib.pvsystem.PVSystem(
+        arrays=parrays, inverter_parameters=pinverter)
+    mc = pvlib.modelchain.ModelChain(system, loc, aoi_model='physical',
+                                     spectral_model='no_loss')
+
+    times = pd.date_range('2019-06-01 00:00', '2019-06-03 23:00', freq='1h',
+                          tz='Etc/GMT+5')
+    weather = loc.get_clearsky(times)
+    mc.run_model(weather)
+
+    return(mc)
 
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -778,9 +826,14 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(
             f"Selecting areas")
 
+    mc = calcPVBifacial()
+    # , 'display.max_columns', None)::
+    with pd.option_context('display.max_rows', None):
+        print(mc.results.ac)
+    exit(0)
     lupolys, points = areaselection()
 
-    points = points.head(5)
+    points = points[1:5]
 
     # horizon calculation for each point (angle as COS)
     if dbg:
@@ -838,8 +891,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             # DNI+DHI hourly
             hdata = ghi2dni_erbs(hdata)
 
-    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+    # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
     #    print(hdata)
+    # exit(0)
     # idx = datetime
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
