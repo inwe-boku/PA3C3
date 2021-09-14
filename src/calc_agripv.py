@@ -156,7 +156,7 @@ def rad_d2h_cpr(w_s, w):
         cos_w_h = math.cos(math.radians(w_h_adp))
         r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h -
                                                 cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
-        print(r)
+        #print(r)
     return(np.clip(r, a_min=0, a_max=None))
 
 
@@ -249,116 +249,6 @@ def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
         data.to_file(filename=os.path.join(path, 'data.gpkg'),
                      layer=dataname, driver='GPKG')
     return(0)
-
-
-def attic():
-    dates = pd.date_range(start='2020-07-01', end='2020-07-03')
-
-    # sun location
-
-    for date in dates:
-        settime = place.setutc(date)
-        solar_position = location.get_solarposition(settime)
-        # sunset azimuth
-        zenith_sunset = solar_position['apparent_zenith'].values[0]
-        w_s = solar_position['azimuth'].values[0]
-        print('rsds', rsds_value)
-
-        datetimes = pd.date_range(
-            start=date, end=date + + datetime.timedelta(hours=23), freq='H')
-        rad = {'settime': settime,
-               'w_s': w_s}
-        w_s_adp = w_s - 180
-        rad_w_s_adp = math.radians(w_s_adp)
-        cos_w_s = math.cos(rad_w_s_adp)
-        sin_w_s = math.sin(rad_w_s_adp)
-
-        # for collares-pereira model
-        w_s_cp = w_s_adp - 60
-        sin_w_s_cp = math.sin(math.radians(w_s_cp))
-
-        a = 0.409+(0.5016*sin_w_s_cp)
-        b = 0.6609-(0.4767*sin_w_s_cp)
-
-        data = pd.DataFrame(index=datetimes, columns={
-                            'w_h', 'z_h', 'dni_disc', 'dni_erbs', 'dhi_erbs', 'r_h', 'G_h', 'r_cp'})
-        for dt in datetimes:
-            solar_position = location.get_solarposition(dt)
-            w_h = solar_position['azimuth'].values[0]  # azimuth of sun
-
-            data['w_h'].loc[dt] = w_h
-            z_h = solar_position['zenith'].values[0]  # zenith of sun
-            data['z_h'].loc[dt] = z_h
-
-            w_h_adp = 180 - w_h
-            cos_w_h = math.cos(math.radians(w_h_adp))
-            r_h = (math.pi/24 * (cos_w_h - cos_w_s)) / \
-                (sin_w_s - (rad_w_s_adp * cos_w_s))  # Liu Jordan formula
-            r_h = np.clip(r_h, a_min=0, a_max=None)
-
-            r_cp = (a + b * cos_w_h) * math.pi/24 * (cos_w_h -
-                                                     cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
-
-            # formulas from: https://www.hindawi.com/journals/ijp/2015/968024/ #1
-            data['r_h'].loc[dt] = r_h
-
-            dni_disc = pvlib.irradiance.disc(
-                r_h,
-                z_h,
-                dt)['dni']
-            data['dni_disc'].loc[dt] = dni_disc
-            dni_erbs = pvlib.irradiance.erbs(r_h, z_h, dt)
-            data['dni_erbs'].loc[dt] = dni_erbs['dni']
-            data['dhi_erbs'].loc[dt] = dni_erbs['dhi']
-            data['G_h'].loc[dt] = r_h * rsds_value * 24
-            data['r_cp'].loc[dt] = r_cp
-        # r_h = np.clip(r_h, a_min = 0, a_max=None).tolist()
-
-        print(data)
-
-    exit(0)
-    # horizon / terrain calculation
-
-    options = gdal.WarpOptions(
-        cutlineDSName="/home/cmikovits/myshape.shp", cropToCutline=True)
-    outBand = gdal.Warp(srcDSOrSrcDSTab="/home/cmikovits/GEODATA/DHMAT/dhm_at_lamb_10m_2018.tif",
-                        destNameOrDestDS="/tmp/cut.tif",
-                        options=options)
-    outBand = None
-
-    ds = gdal.Open("/tmp/cut.tif")
-    # print(ds.info())
-    # gt = ds.GetGeoTransform()
-    dem = np.array(ds.GetRasterBand(1).ReadAsArray())
-    dem = dem.astype(np.double)
-
-    print(dem)
-
-    dem_spacing = 10
-
-    hrz = horizon(0, dem, dem_spacing)
-    # slope, aspect = gradient_d8(dem, dem_spacing, dem_spacing)
-    # svf, tvf = viewf(dem, spacing=dem_spacing)
-
-    print(hrz)
-
-    plt.imshow(hrz)
-    plt.show()
-
-    # PV System Modelling
-
-    modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
-    inverter = pvlib.pvsystem.retrieve_sam('cecinverter')
-    inverter = inverter['ABB__MICRO_0_25_I_OUTD_US_208__208V_']
-    temperature_m = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
-        'sapm']['open_rack_glass_glass']
-
-    system = pvlib.pvsystem.PVSystem(surface_tilt=20, surface_azimuth=180,
-                                     module_parameters=modules,
-                                     inverter_parameters=inverter,
-                                     temperature_model_parameters=temperature_m)
-
-    print(system)
 
 
 def reproj_raster(filename, dst_crs):
@@ -702,34 +592,57 @@ def calcPV():
     energies = pd.Series(energies)
 
 
-def calcPVBifacial():
+def relative_diffuse_ratio(distance, height, tilt):
+    # returns fraction of diffuse irradiance loss row-to-row diffuse shading [0-1]
+    # print(distance, height)
+    gcr = height/distance  # 1/k
+    psi = pvlib.shading.masking_angle_passias(tilt, gcr)
+    shading_loss = pvlib.shading.sky_diffuse_passias(psi)
+
+    transposition_ratio = pvlib.irradiance.isotropic(tilt, dhi=1.0)
+    ratio = transposition_ratio * (1-shading_loss)
+    if dbg:
+        typer.echo(
+            f"Masking angle: {psi}, Shading loss: {shading_loss}, Transposition ratio: {transposition_ratio}, total: {ratio}")
+    return(ratio)
+
+def PVmoduleinfo():
+    cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
+    for name in cecmodules.columns:
+       pmodule = cecmodules[name]
+       if ("LG" in name) and (pmodule.Bifacial == 1):
+           print(pmodule)
+
+
+def calcPVBifacial(pvsys, hdata):
     cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
     cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
 
-    # print(cecinverters.info(verbose=1))
-    # LG_Electronics_Inc__LG415N2T_L5
-    rows = 10
-    mods = 84
-    numinv = round(84*10/100)
-    distance = 10
-    height = 3
-    tilt = 90
-    gcr = distance/height
-    psi = pvlib.shading.masking_angle_passias(tilt, gcr)
-    shading_loss = pvlib.shading.sky_diffuse_passias(psi)
-    transposition_ratio = pvlib.irradiance.isotropic(tilt, dhi=1.0)
-    relative_diffuse = transposition_ratio * (1-shading_loss) * 100  # %
+    modrow = config['pvsystem'][pvsys]['modrow']
+    rows = config['pvsystem'][pvsys]['rows']
+    distance = config['pvsystem'][pvsys]['distance']
+    height = config['pvsystem'][pvsys]['height']
+    tilt = config['pvsystem'][pvsys]['tilt']
+    strmod = config['pvsystem'][pvsys]['strmod']
+    strinv = config['pvsystem'][pvsys]['strinv']
 
-    pmodule = cecmodules['LG_Electronics_Inc__LG410N2C_A5']
-    pinverter = cecinverters['LG_Electronics_Inc___D007KEEN261__240V_']
-    pinverter = pinverter * numinv
+    strings = 2
+    modstr = 10
+    mult = rows/strings
+    mult = mult * (modrow/modstr)
+
+    relative_diffuse = relative_diffuse_ratio(distance, height, tilt)
+    # print(relative_diffuse)
+
+    pmodule = cecmodules[strmod]
+    pinverter = cecinverters[strinv]
     ptemp = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
         'sapm']['open_rack_glass_glass']
     parray = dict(
         module_parameters=pmodule,
         temperature_model_parameters=ptemp,
-        strings = rows,
-        modules_per_string = mods
+        strings=strings,
+        modules_per_string=modstr
     )
     parrays = [
         pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(tilt, 90), name='East',
@@ -739,12 +652,12 @@ def calcPVBifacial():
     ]
     loc = pvlib.location.Location(47, -16)
     system = pvlib.pvsystem.PVSystem(
-        arrays=parrays, inverter_parameters=pinverter)
+        arrays=parrays, inverter_parameters=pinverter, strings_per_inverter=1)
     mc = pvlib.modelchain.ModelChain(system, loc, aoi_model='physical',
                                      spectral_model='no_loss')
 
     times = pd.date_range('2019-06-01 00:00', '2019-06-03 23:00', freq='1h',
-                          tz='Etc/GMT+5')
+                          tz='UTC')
     weather = loc.get_clearsky(times)
     mc.run_model(weather)
 
@@ -826,11 +739,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(
             f"Selecting areas")
 
-    mc = calcPVBifacial()
-    # , 'display.max_columns', None)::
-    with pd.option_context('display.max_rows', None):
-        print(mc.results.ac)
-    exit(0)
+    pvsys = 0
+
     lupolys, points = areaselection()
 
     points = points[1:5]
@@ -856,8 +766,6 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             typer.echo(
                 f"\tProcessing Points")
         for idx, row in points.iterrows():
-            if dbg:
-                print(idx)
             res = []
             for a in angles:
                 py, px = ds.index(row.geometry.x, row.geometry.y)
@@ -910,6 +818,19 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                         # str(config['files']['dhm']), fg = typer.colors.WHITE,
                         #  bg = typer.colors.RED, bold = True) + " does not exist"
                         typer.echo(message)
+
+    mc = calcPVBifacial(pvsys, hdata)
+    # , 'display.max_columns', None)::
+    with pd.option_context('display.max_rows', None):
+        print(mc.results.ac)
+    # dni_pre = pvlib.irradiance.disc(ghi_input, Zenith, dayofyear)['dni']
+    # dhi_pre = ghi_input - dni_pre * cosd(Zenith)
+    # weather = pd.DataFrame({'ghi': ghi_input,
+    #                        'dni': dni_pre,
+    #                        'dhi': dhi_pre,
+    #                        'temp_air': temperature,
+    #                        'wind_speed': wind_speed},
+    #                       index=timeindex)
 
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')

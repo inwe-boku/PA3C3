@@ -64,3 +64,15 @@ horizon:
 # gis defaults
 gis:
   processcrs: "epsg:31287"
+
+pvsystem:
+  0:
+    name: "Bifacial"
+    type: "Bifacial"
+    strmod: "LG_Electronics_Inc__LG415N2T_L5"
+    strinv: "LG_Electronics_Inc___D007KEEN261__240V_"
+    modrow: 84  # number of modules per row
+    rows: 10  # number of rows
+    distance: 10 # distance in meters between rows
+    height: 2 # slant height (without clearance)
+    tilt: 90 # tilt of modules [0-90]
