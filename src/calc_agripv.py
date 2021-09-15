@@ -78,6 +78,15 @@ def get_ccca_values(nd, nx, ny, date):
 
 
 def sunset_time(location, date):
+    """[summary]
+
+    Parameters
+    ----------
+    location : [type]
+        [description]
+    date : [type]
+        [description]
+    """
     place = suntimes.SunTimes(
         location.longitude,
         location.latitude,
@@ -156,86 +165,8 @@ def rad_d2h_cpr(w_s, w):
         cos_w_h = math.cos(math.radians(w_h_adp))
         r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h -
                                                 cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
-        #print(r)
+        # print(r)
     return(np.clip(r, a_min=0, a_max=None))
-
-
-def calc_pvoutput(point, ts_rtw, tracking, capacity_kWp, tz='UTC'):
-    """
-    calculates ac output in Wh of a PV installation either heading
-    to the ecuator and an inclination equal to the latitude or assuming
-    a single-axis tracking system for a particular location. It requires
-    time series of solar radiation, temperature (in °C at 2 m)and wind
-    speed (in m/s at 1 m altitude) as well as the coordinates of the location
-    and either 0 or 1 to define the type of tracker as input
-    """
-    altitude = 0
-    if point['altitutde']:
-        altitude = point['altitutde']
-    location = pvlib.location.Location(
-        latitude=point['geometry'].y[0],
-        longitude=point['geometry'].x[0],
-        altitude=point['altitude'],
-        tz='UTC')
-    temperature = ts_rtw['temp']
-    wind_speed = ts_rtw['wind']
-    ghi_input = ts_rtw['rad']
-    timeindex = ghi_input.asfreq(freq='1H').index
-    dayofyear = timeindex.dayofyear
-
-    solarpos = pvlib.solarposition.pyephem(timeindex, location.latitude,
-                                           location.longitude,
-                                           temperature=np.mean(temperature))
-    zenith = solarpos['zenith']
-
-    if tracking == 0:
-        slope = lats
-        if lats >= 0:
-            aspect = 0
-        elif lats < 0:
-            aspect = 180
-    elif tracking == 1:
-
-        tracker_data = pvlib.tracking.singleaxis(solarpos['apparent_zenith'],
-                                                 solarpos['azimuth'],
-                                                 axis_tilt=0,
-                                                 axis_azimuth=0,
-                                                 max_angle=90,
-                                                 backtrack=True,
-                                                 gcr=2.0 / 7.0)
-        slope = tracker_data['surface_tilt']
-        aspect = tracker_data['surface_azimuth']
-    # solartime = solarpos['solar_time']
-    # clearsky_irrad = location.get_clearsky(timeindex)
-    # clearsky_irrad['2018-01-01'].plot()
-    dni_pre = pvlib.irradiance.disc(ghi_input, Zenith, dayofyear)['dni']
-    dhi_pre = ghi_input - dni_pre * cosd(Zenith)
-    weather = pd.DataFrame({'ghi': ghi_input,
-                            'dni': dni_pre,
-                            'dhi': dhi_pre,
-                            'temp_air': temperature,
-                            'wind_speed': wind_speed},
-                           index=timeindex)
-    # weather['2017-06-01':'2017-06-08'].plot(figsize=(18,6))
-    sandia_modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
-    cec_inverters = pvlib.pvsystem.retrieve_sam('cecinverter')
-    # the follow selection requires some sort of automatization
-    sandia_module = sandia_modules['Silevo_Triex_U300_Black__2014_']
-    # Tries with the stc where understimating the yearly sum. Decided to use
-    # the PTC
-    PTC = 280.5
-    cec_inverter = cec_inverters['ABB__MICRO_0_3_I_OUTD_US_240_240V__CEC_2014_']
-    # check that the Paco is at least equal to the STC
-    number_of_panels_1kWp = 1000 / PTC
-    area_1kWp = number_of_panels_1kWp * sandia_module['Area']
-    system = PVSystem(surface_tilt=slope, surface_azimuth=aspect,
-                      module_parameters=sandia_module,
-                      inverter_parameters=cec_inverter)
-    mc = ModelChain(system, location)
-    mc.run_model(times=weather.index, weather=weather)
-    pv_output = (mc.ac * number_of_panels_1kWp *
-                 installed_capacity_kWp).fillna(0)
-    return pv_output
 
 
 def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
@@ -501,97 +432,6 @@ def ghi2dni_erbs(data):  # using the erbs model from pvlib
     return(data)
 
 
-def calcPV():
-    cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
-    cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
-
-    # 'LG Electronics Inc. LG415N2T-L5'
-    module = cecmodules['Aleo Solar S59y280']
-    # 'LG Electronics Inc : D007KEEN261 [240V]'
-    inverter = cecinverters['AEG Power Solutions: Protect MPV.150.01 [480V]']
-    temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
-        'pvsyst']['open_rack_glass_glass']
-
-    for location in coordinates:
-        latitude, longitude, name, altitude, timezone = location
-        weather = pvlib.iotools.get_pvgis_tmy(latitude, longitude,
-                                              map_variables=True)[0]
-
-        weather.index.name = "utc_time"
-        tmys.append(weather)
-
-    system = {'module': module, 'inverter': inverter, 'surface_azimuth': 180}
-    energies = {}
-    for location, weather in zip(coordinates, tmys):
-        latitude, longitude, name, altitude, timezone = location
-
-    system['surface_tilt'] = latitude
-
-    solpos = pvlib.solarposition.get_solarposition(
-
-        time=weather.index,
-
-        latitude=latitude,
-
-        longitude=longitude,
-
-        altitude=altitude,
-
-        temperature=weather["temp_air"],
-
-        pressure=pvlib.atmosphere.alt2pres(altitude),
-
-    )
-
-    dni_extra = pvlib.irradiance.get_extra_radiation(weather.index)
-
-    airmass = pvlib.atmosphere.get_relative_airmass(solpos['apparent_zenith'])
-
-    pressure = pvlib.atmosphere.alt2pres(altitude)
-
-    am_abs = pvlib.atmosphere.get_absolute_airmass(airmass, pressure)
-
-    aoi = pvlib.irradiance.aoi(
-        system['surface_tilt'],
-        system['surface_azimuth'],
-        solpos["apparent_zenith"],
-        solpos["azimuth"],
-    )
-
-    total_irradiance = pvlib.irradiance.get_total_irradiance(
-        system['surface_tilt'],
-        system['surface_azimuth'],
-        solpos['apparent_zenith'],
-        solpos['azimuth'],
-        weather['dni'],
-        weather['ghi'],
-        weather['dhi'],
-        dni_extra=dni_extra,
-        model='haydavies',
-    )
-
-    cell_temperature = pvlib.temperature.sapm_cell(
-        total_irradiance['poa_global'],
-        weather["temp_air"],
-        weather["wind_speed"],
-        **temperature_model_parameters,
-    )
-
-    effective_irradiance = pvlib.pvsystem.sapm_effective_irradiance(
-        total_irradiance['poa_direct'],
-        total_irradiance['poa_diffuse'],
-        am_abs,
-        aoi,
-        module,
-    )
-
-    dc = pvlib.pvsystem.sapm(effective_irradiance, cell_temperature, module)
-    ac = pvlib.inverter.sandia(dc['v_mp'], dc['p_mp'], inverter)
-    annual_energy = ac.sum()
-    energies[name] = annual_energy
-    energies = pd.Series(energies)
-
-
 def relative_diffuse_ratio(distance, height, tilt):
     # returns fraction of diffuse irradiance loss row-to-row diffuse shading [0-1]
     # print(distance, height)
@@ -600,28 +440,29 @@ def relative_diffuse_ratio(distance, height, tilt):
     shading_loss = pvlib.shading.sky_diffuse_passias(psi)
 
     transposition_ratio = pvlib.irradiance.isotropic(tilt, dhi=1.0)
-    ratio = transposition_ratio * (1-shading_loss)
+    total_ratio = transposition_ratio * (1-shading_loss)
     if dbg:
         typer.echo(
-            f"Masking angle: {psi}, Shading loss: {shading_loss}, Transposition ratio: {transposition_ratio}, total: {ratio}")
-    return(ratio)
+            f"Masking angle: {psi}, Shading loss: {shading_loss}, Transposition ratio: {transposition_ratio}, total: {total_ratio}")
+    return(total_ratio, shading_loss, transposition_ratio)
+
 
 def PVmoduleinfo():
     cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
     for name in cecmodules.columns:
-       pmodule = cecmodules[name]
-       if ("LG" in name) and (pmodule.Bifacial == 1):
-           print(pmodule)
+        pmodule = cecmodules[name]
+        if ("LG" in name) and (pmodule.Bifacial == 1):
+            print(pmodule)
 
 
-def calcPVBifacial(pvsys, hdata):
+def calcPVBifacial(pvsys, location, hdata):
     cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
     cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
 
     modrow = config['pvsystem'][pvsys]['modrow']
     rows = config['pvsystem'][pvsys]['rows']
-    distance = config['pvsystem'][pvsys]['distance']
-    height = config['pvsystem'][pvsys]['height']
+    # distance = config['pvsystem'][pvsys]['distance']
+    # height = config['pvsystem'][pvsys]['height']
     tilt = config['pvsystem'][pvsys]['tilt']
     strmod = config['pvsystem'][pvsys]['strmod']
     strinv = config['pvsystem'][pvsys]['strinv']
@@ -631,7 +472,7 @@ def calcPVBifacial(pvsys, hdata):
     mult = rows/strings
     mult = mult * (modrow/modstr)
 
-    relative_diffuse = relative_diffuse_ratio(distance, height, tilt)
+    # relative_diffuse = relative_diffuse_ratio(distance, height, tilt)
     # print(relative_diffuse)
 
     pmodule = cecmodules[strmod]
@@ -650,16 +491,12 @@ def calcPVBifacial(pvsys, hdata):
         pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(tilt, 270), name='West',
                              **parray),
     ]
-    loc = pvlib.location.Location(47, -16)
     system = pvlib.pvsystem.PVSystem(
         arrays=parrays, inverter_parameters=pinverter, strings_per_inverter=1)
-    mc = pvlib.modelchain.ModelChain(system, loc, aoi_model='physical',
+    mc = pvlib.modelchain.ModelChain(system, location, aoi_model='physical',
                                      spectral_model='no_loss')
 
-    times = pd.date_range('2019-06-01 00:00', '2019-06-03 23:00', freq='1h',
-                          tz='UTC')
-    weather = loc.get_clearsky(times)
-    mc.run_model(weather)
+    #mc.run_model(weather)
 
     return(mc)
 
@@ -805,24 +642,41 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     # idx = datetime
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
-            if (hrow['GHI'] > 0 and prow['geometry'] == hrow['location']):
+            if (hrow['DNI'] > 0 and prow['geometry'] == hrow['location']):
                 phors = json.loads(prow['horizon'])
+                # find the angle closest to the hourly azimuth of the sun (w_h)
                 idx = (np.abs(angles - hrow['w_h'])).argmin()
-                if phors[idx] > hrow['z_h']:
-                    if dbg:
-                        message = (typer.style(
-                            "sun above horizon: ", bold=True) + str(hidx) +
-                            "; azimuth:" + str(hrow['w_h']) +
-                            "; Terrain horizon: " + str(phors[idx]) +
-                            "; Sun horizon: " + str(hrow['z_h']))
-                        # str(config['files']['dhm']), fg = typer.colors.WHITE,
-                        #  bg = typer.colors.RED, bold = True) + " does not exist"
-                        typer.echo(message)
+                if phors[idx] < hrow['z_h']:
+                    hdata.at[hidx, 'DNIorig'] = hrow['DNI']
+                    hdata.at[hidx, 'DNI'] = 0
+                    # if dbg:
+                    #    message = (typer.style(
+                    #        "sun below horizon: ", bold=True) + str(hidx) +
+                    #        "; azimuth:" + str(hrow['w_h']) +
+                    #        "; Terrain horizon: " + str(phors[idx]) +
+                    #        "; Sun horizon: " + str(hrow['z_h']))
+                    # str(config['files']['dhm']), fg = typer.colors.WHITE,
+                    #  bg = typer.colors.RED, bold = True) + " does not exist"
+                    #    typer.echo(message)
 
-    mc = calcPVBifacial(pvsys, hdata)
+    [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
+                                                     config['pvsystem'][pvsys]['height'],
+                                                     config['pvsystem'][pvsys]['tilt'])
+    print(rDHI, rShade, rTransp)
+    times = pd.date_range('2019-06-01 00:00', '2019-06-03 23:00', freq='1h',
+                          tz='UTC')
+    loc = pvlib.location.Location(47, -16)
+    weather = loc.get_clearsky(times)
+    print(weather.head(n=48))
+    print(hdata[3600:3750])
+    
+    
+    
+    mc = calcPVBifacial(pvsys, loc, hdata)
+    
     # , 'display.max_columns', None)::
-    with pd.option_context('display.max_rows', None):
-        print(mc.results.ac)
+    #with pd.option_context('display.max_rows', None):
+    #    print(mc.results.ac)
     # dni_pre = pvlib.irradiance.disc(ghi_input, Zenith, dayofyear)['dni']
     # dhi_pre = ghi_input - dni_pre * cosd(Zenith)
     # weather = pd.DataFrame({'ghi': ghi_input,
