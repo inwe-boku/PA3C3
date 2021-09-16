@@ -160,13 +160,14 @@ def rad_d2h_cpr(w_s, w):
     a = 0.409 + (0.5016 * sin_w_s_cp)
     b = 0.6609 - (0.4767 * sin_w_s_cp)
 
+    ratio = []
     for w_h in w:
         w_h_adp = 180 - w_h
         cos_w_h = math.cos(math.radians(w_h_adp))
         r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h -
                                                 cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
-        # print(r)
-    return(np.clip(r, a_min=0, a_max=None))
+        ratio.append(r)
+    return(np.clip(ratio, a_min=0, a_max=None))
 
 
 def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
@@ -392,12 +393,12 @@ def cccapoints(nd, points, daterange):
     return(points, cccadict)
 
 
-def ghid2ghih(dvalues, daterange, location):
+def ghid2ghih(ddata, daterange, location):
     i = 0
     data = pd.DataFrame()
-    while i < 180:  # len(daterange):
+    while i < len(daterange):
         date = daterange[i]
-        dval = dvalues[i]
+        dval = ddata[i]*1000/24
         # sunset azimuth
         settime = sunset_time(location, date)
         solar_position = location.get_solarposition(settime)
@@ -405,7 +406,7 @@ def ghid2ghih(dvalues, daterange, location):
 
         # hourly azimuth
         datetimes = pd.date_range(
-            start=date, end=date + + datetime.timedelta(hours=23), freq='H')
+            start=date + datetime.timedelta(hours=0.5), end=date + datetime.timedelta(hours=23.5), freq='H', tz=config['ccca']['tz'])
         solar_position = location.get_solarposition(datetimes)
         # azimuth of sun
         w_h = np.around(solar_position['azimuth'].values, decimals=2)
@@ -414,21 +415,29 @@ def ghid2ghih(dvalues, daterange, location):
 
         # daily to hourly values
         ratio = rad_d2h_liu(w_s, w_h)
+        #ratio = np.roll(ratio, 1)
         # print(dval, ratio)
-        hvalues = dval*ratio*24
+        hvalues = np.around(dval*ratio, decimals=2)
         tempdata = np.stack([w_h, z_h, hvalues], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
-                             columns=['w_h', 'z_h', 'GHI'])
+                             columns=['w_h', 'z_h', 'ghi'])
         data = data.append(hdata)
         i += 1
     return(data)
 
 
-def ghi2dni_erbs(data):  # using the erbs model from pvlib
-    dni_erbs = pvlib.irradiance.erbs(data['GHI'], data['z_h'], data.index)
-    dni_erbs.drop(['kt'], axis=1, inplace=True)
-    dni_erbs.rename(columns={"dni": "DNI", "dhi": "DHI"}, inplace=True)
-    data = pd.concat([data, dni_erbs], axis=1)
+def ghi2dni(data, model='disc'):
+    if model == 'disc':
+        dnidata = pvlib.irradiance.disc(data['ghi'], data['z_h'], data.index)
+        # pvlib.irradiance.dni
+    elif model == 'dirint':
+        dnidata = pvlib.irradiance.dirint(data['ghi'], data['z_h'], data.index)
+    elif model == 'erbs':
+        dnidata = pvlib.irradiance.erbs(data['ghi'], data['z_h'], data.index)
+    data = pd.concat([data, dnidata], axis=1)
+    data.dni = data.dni.round(decimals=2)
+    data.dhi = data.dhi.round(decimals=2)
+    data.kt = data.kt.round(decimals=5)
     return(data)
 
 
@@ -496,7 +505,7 @@ def calcPVBifacial(pvsys, location, hdata):
     mc = pvlib.modelchain.ModelChain(system, location, aoi_model='physical',
                                      spectral_model='no_loss')
 
-    #mc.run_model(weather)
+    # mc.run_model(weather)
 
     return(mc)
 
@@ -586,7 +595,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
             f"Calculation of angles for each point")
-    angles = np.arange(-180, 170, config['horizon']['numangles'])
+    angles = np.arange(-180, 170, config['pvmod']['numangles'])
     # ds = gdal.Open(config['files']['dhm'])
     # dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
     with rasterio.open(config['files']['dhm'], 'r') as ds:
@@ -624,17 +633,17 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     for year, daterange in dates.items():
         for nxny in cccadict.keys():
-            dvalues = cccadict[nxny]['rsds']
+            ddata = cccadict[nxny]['rsds']
             geom = cccadict[nxny]['geom']
             altitude = int(json.loads(cccadict[nxny]['altitude'])[0])
             location = pvlib.location.Location(
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
-            hdata = ghid2ghih(dvalues, daterange, location)
+            hdata = ghid2ghih(ddata, daterange, location)
             hdata['location'] = geom
             # DNI+DHI hourly
-            hdata = ghi2dni_erbs(hdata)
+            hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
 
     # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
     #    print(hdata)
@@ -642,13 +651,13 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     # idx = datetime
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
-            if (hrow['DNI'] > 0 and prow['geometry'] == hrow['location']):
+            if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
                 phors = json.loads(prow['horizon'])
                 # find the angle closest to the hourly azimuth of the sun (w_h)
                 idx = (np.abs(angles - hrow['w_h'])).argmin()
                 if phors[idx] < hrow['z_h']:
-                    hdata.at[hidx, 'DNIorig'] = hrow['DNI']
-                    hdata.at[hidx, 'DNI'] = 0
+                    hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
+                    hdata.at[hidx, 'dni'] = 0
                     # if dbg:
                     #    message = (typer.style(
                     #        "sun below horizon: ", bold=True) + str(hidx) +
@@ -662,20 +671,22 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
                                                      config['pvsystem'][pvsys]['height'],
                                                      config['pvsystem'][pvsys]['tilt'])
-    print(rDHI, rShade, rTransp)
-    times = pd.date_range('2019-06-01 00:00', '2019-06-03 23:00', freq='1h',
-                          tz='UTC')
-    loc = pvlib.location.Location(47, -16)
-    weather = loc.get_clearsky(times)
-    print(weather.head(n=48))
-    print(hdata[3600:3750])
-    
-    
-    
-    mc = calcPVBifacial(pvsys, loc, hdata)
-    
+    #print(rDHI, rShade, rTransp)
+    # times = pd.date_range('2020-06-01 00:00', '2020-06-03 23:00', freq='1h',
+    #                      tz='Europe/Vienna')
+    #loc = pvlib.location.Location(48, 16.5)
+    #weather = loc.get_clearsky(times)
+    #weather['z_h'] = loc.get_solarposition(times)['zenith'].values
+    #weather = ghi2dni(weather, model='erbs')
+    # print(weather.head(n=48))
+    print(hdata[3624:3672])
+
+    # print(ddata)
+
+    #mc = calcPVBifacial(pvsys, loc, hdata)
+
     # , 'display.max_columns', None)::
-    #with pd.option_context('display.max_rows', None):
+    # with pd.option_context('display.max_rows', None):
     #    print(mc.results.ac)
     # dni_pre = pvlib.irradiance.disc(ghi_input, Zenith, dayofyear)['dni']
     # dhi_pre = ghi_input - dni_pre * cosd(Zenith)
@@ -685,7 +696,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     #                        'temp_air': temperature,
     #                        'wind_speed': wind_speed},
     #                       index=timeindex)
-
+    hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
+    ddata = pd.DataFrame(data=ddata)
+    ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 
