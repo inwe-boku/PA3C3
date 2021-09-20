@@ -464,49 +464,81 @@ def PVmoduleinfo():
             print(pmodule)
 
 
-def calcPVBifacial(pvsys, location, hdata):
+def pvmodeltest():
+    location = pvlib.location.Location(48, 16.5)
+    inverter_parameters = {'pdc0': 10000, 'eta_inv_nom': 0.96}
+    module_parameters = {'pdc0': 250, 'gamma_pdc': -0.004}
+    temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
+        'sapm']['open_rack_glass_glass']
+
+    array_one = pvlib.pvsystem.Array(mount=pvlib.pvsystem.FixedMount(surface_tilt=20, surface_azimuth=200),
+                                     module_parameters=module_parameters,
+                                     temperature_model_parameters=temperature_model_parameters,
+                                     modules_per_string=10, strings=2)
+    systemarray = pvlib.pvsystem.PVSystem(arrays=[array_one],  # , array_two],
+                                          inverter_parameters={'pdc0': 8000})
+    print(systemarray)
+    weather = pvlib.iotools.get_pvgis_tmy(location.latitude, location.longitude,
+                                          map_variables=True)[0]
+    mc = pvlib.modelchain.ModelChain(systemarray, location, aoi_model='no_loss',
+                                     spectral_model='no_loss')
+    mc.run_model(weather)
+    # , 'display.max_columns', None):
+    with pd.option_context('display.max_rows', None):
+        print(mc.results.ac)
+
+
+def pvsystemtest():
+    location = pvlib.location.Location(48, 16.5)
     cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
     cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
-
-    modrow = config['pvsystem'][pvsys]['modrow']
-    rows = config['pvsystem'][pvsys]['rows']
-    # distance = config['pvsystem'][pvsys]['distance']
-    # height = config['pvsystem'][pvsys]['height']
-    tilt = config['pvsystem'][pvsys]['tilt']
-    strmod = config['pvsystem'][pvsys]['strmod']
-    strinv = config['pvsystem'][pvsys]['strinv']
-
-    strings = 2
-    modstr = 10
-    mult = rows/strings
-    mult = mult * (modrow/modstr)
-
-    # relative_diffuse = relative_diffuse_ratio(distance, height, tilt)
-    # print(relative_diffuse)
-
-    pmodule = cecmodules[strmod]
-    pinverter = cecinverters[strinv]
-    ptemp = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
+    pmodule = cecmodules["LG_Electronics_Inc__LG415N2T_L5"]
+    pinverter = cecinverters["LG_Electronics_Inc___D007KEEN261__240V_"]
+    temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
         'sapm']['open_rack_glass_glass']
+
+    array_one = pvlib.pvsystem.Array(mount=pvlib.pvsystem.FixedMount(surface_tilt=20, surface_azimuth=200),
+                                     module_parameters=pmodule,
+                                     temperature_model_parameters=temperature_model_parameters,
+                                     modules_per_string=10, strings=2)
+    systemarray = pvlib.pvsystem.PVSystem(arrays=[array_one],  # , array_two],
+                                          inverter_parameters=pinverter)
+    print(systemarray)
+    weather = pvlib.iotools.get_pvgis_tmy(location.latitude, location.longitude,
+                                          map_variables=True)[0]
+    mc = pvlib.modelchain.ModelChain(systemarray, location, aoi_model='no_loss',
+                                     spectral_model='no_loss')
+    mc.run_model(weather)
+    with pd.option_context('display.max_rows', None):
+        print(mc.results.ac)
+
+
+def pvsystem(pvsys, location):
+    cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
+    cecinverters = pvlib.pvsystem.retrieve_sam('CECInverter')
+    module_parameters = cecmodules[config['pvsystem'][pvsys]['module']]
+    inverter_parameters = cecinverters[config['pvsystem'][pvsys]['inverter']]
+    temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
+        'sapm']['open_rack_glass_glass']
+    temp_strings = 2
+    temp_modules_per_string = 10
+    mult = config['pvsystem'][pvsys]['modules_per_string'] * \
+        config['pvsystem'][pvsys]['strings'] / \
+        temp_strings/temp_modules_per_string
     parray = dict(
-        module_parameters=pmodule,
-        temperature_model_parameters=ptemp,
-        strings=strings,
-        modules_per_string=modstr
+        module_parameters=module_parameters,
+        temperature_model_parameters=temperature_model_parameters,
+        strings=temp_strings,
+        modules_per_string=temp_modules_per_string
     )
-    parrays = [
-        pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(tilt, 90), name='East',
-                             **parray),
-        pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(tilt, 270), name='West',
-                             **parray),
-    ]
+    parrays = []
+    for azim in config['pvsystem'][pvsys]['azimuth']:
+        parrays.append(pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(config['pvsystem'][pvsys]['tilt'], azim), name='agripv',
+                                            **parray))
     system = pvlib.pvsystem.PVSystem(
-        arrays=parrays, inverter_parameters=pinverter, strings_per_inverter=1)
+        arrays=parrays, inverter_parameters=inverter_parameters, strings_per_inverter=1)
     mc = pvlib.modelchain.ModelChain(system, location, aoi_model='physical',
                                      spectral_model='no_loss')
-
-    # mc.run_model(weather)
-
     return(mc)
 
 
@@ -520,6 +552,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          ):
 
     # define important stuff global
+    
     global config
 
     global path
@@ -585,7 +618,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(
             f"Selecting areas")
 
-    pvsys = 0
+    # PVmoduleinfo()
 
     lupolys, points = areaselection()
 
@@ -668,34 +701,17 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     #  bg = typer.colors.RED, bold = True) + " does not exist"
                     #    typer.echo(message)
 
-    [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
-                                                     config['pvsystem'][pvsys]['height'],
-                                                     config['pvsystem'][pvsys]['tilt'])
     #print(rDHI, rShade, rTransp)
-    # times = pd.date_range('2020-06-01 00:00', '2020-06-03 23:00', freq='1h',
-    #                      tz='Europe/Vienna')
-    #loc = pvlib.location.Location(48, 16.5)
-    #weather = loc.get_clearsky(times)
-    #weather['z_h'] = loc.get_solarposition(times)['zenith'].values
-    #weather = ghi2dni(weather, model='erbs')
-    # print(weather.head(n=48))
-    print(hdata[3624:3672])
+    loc = pvlib.location.Location(48, 16.5)
 
-    # print(ddata)
-
-    #mc = calcPVBifacial(pvsys, loc, hdata)
-
-    # , 'display.max_columns', None)::
-    # with pd.option_context('display.max_rows', None):
-    #    print(mc.results.ac)
-    # dni_pre = pvlib.irradiance.disc(ghi_input, Zenith, dayofyear)['dni']
-    # dhi_pre = ghi_input - dni_pre * cosd(Zenith)
-    # weather = pd.DataFrame({'ghi': ghi_input,
-    #                        'dni': dni_pre,
-    #                        'dhi': dhi_pre,
-    #                        'temp_air': temperature,
-    #                        'wind_speed': wind_speed},
-    #                       index=timeindex)
+    for pvsys in config['pvsystem'].keys():
+        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
+                                                         config['pvsystem'][pvsys]['height'],
+                                                         config['pvsystem'][pvsys]['tilt'])
+        mc = pvsystem(pvsys, loc)
+        with pd.option_context('display.max_rows', None):
+            print(mc)
+    
     hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
     ddata = pd.DataFrame(data=ddata)
     ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
