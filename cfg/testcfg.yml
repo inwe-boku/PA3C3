@@ -80,7 +80,7 @@ pvsystem:
     distance: 10 # distance in meters between rows
     height: 2 # slant height (without clearance)
     tilt: 90 # tilt of modules [0-90]
-    azimuth: [90,270]
+    azimuth: [90, 270]
   2:
     name: "AgriPV"
     type: "single"

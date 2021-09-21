@@ -415,7 +415,7 @@ def ghid2ghih(ddata, daterange, location):
 
         # daily to hourly values
         ratio = rad_d2h_liu(w_s, w_h)
-        #ratio = np.roll(ratio, 1)
+        # ratio = np.roll(ratio, 1)
         # print(dval, ratio)
         hvalues = np.around(dval*ratio, decimals=2)
         tempdata = np.stack([w_h, z_h, hvalues], axis=1)
@@ -552,7 +552,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          ):
 
     # define important stuff global
-    
+
     global config
 
     global path
@@ -691,29 +691,19 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 if phors[idx] < hrow['z_h']:
                     hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
                     hdata.at[hidx, 'dni'] = 0
-                    # if dbg:
-                    #    message = (typer.style(
-                    #        "sun below horizon: ", bold=True) + str(hidx) +
-                    #        "; azimuth:" + str(hrow['w_h']) +
-                    #        "; Terrain horizon: " + str(phors[idx]) +
-                    #        "; Sun horizon: " + str(hrow['z_h']))
-                    # str(config['files']['dhm']), fg = typer.colors.WHITE,
-                    #  bg = typer.colors.RED, bold = True) + " does not exist"
-                    #    typer.echo(message)
 
-    #print(rDHI, rShade, rTransp)
-    loc = pvlib.location.Location(48, 16.5)
+                    for pvsys in config['pvsystem'].keys():
+                        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
+                                                                         config['pvsystem'][pvsys]['height'],
+                                                                         config['pvsystem'][pvsys]['tilt'])
+                        mcsys = pvsystem(pvsys, pvlib.location.Location(
+                            prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
+                        mcsim=mcsys.run_model(hdata)
+                        with pd.option_context('display.max_rows', None):
+                            print(mcsim.results.ac)
 
-    for pvsys in config['pvsystem'].keys():
-        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
-                                                         config['pvsystem'][pvsys]['height'],
-                                                         config['pvsystem'][pvsys]['tilt'])
-        mc = pvsystem(pvsys, loc)
-        with pd.option_context('display.max_rows', None):
-            print(mc)
-    
     hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
-    ddata = pd.DataFrame(data=ddata)
+    ddata=pd.DataFrame(data=ddata)
     ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
