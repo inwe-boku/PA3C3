@@ -56,13 +56,14 @@ landuse:
   # maximum altitude
   maxalt: 1950
   # maximum slope (in percent)
-  maxslope: 25
+  maxslope: 20
   minarea: 9999
-  mincompactness: 0.4 #0.22
+  mincompactness: 0.22 #0.22
+
   points_per_ha: 1
 
 pvmod:
-  numangles: 36 # 360/x
+  numangles: 30 # 360/12
   hmodel: "erbs"
 
 # gis defaults
@@ -80,5 +81,29 @@ pvsystem:
     strings: 1 # number of rows
     distance: 100 # distance in meters between rows
     height: 1 # slant height (without clearance)
+    tilt: [30] # tilt of modules [0-90]
+    azimuth: [180]
+  1:
+    name: "Bifacial"
+    type: "bifacial"
+    module: "LG_Electronics_Inc__LG375N2T_A4"
+    #"LG_Electronics_Inc__LG415N2T_L5"
+    inverter: "LG_Electronics_Inc___D007KEEN261__240V_"
+    modules_per_string: 84 # number of modules per row
+    strings: 10 # number of rows
+    distance: 10 # distance in meters between rows
+    height: 2 # slant height (without clearance)
+    tilt: [90, 90] # tilt of modules [0-90]
+    azimuth: [90, 270]
+  2:
+    name: "AgriPV"
+    type: "single"
+    module: "Aleo_Solar_S79y280"
+    inverter: "AEG_Power_Solutions__Protect_PV_500_UL"
+    # "ABB__MICRO_0_3_I_OUTD_US_240_240V__CEC_2014_" "ABB: MICRO-0.3-I-OUTD-US-240 [240V]"
+    modules_per_string: 256 # number of modules per row
+    strings: 8 # number of rows
+    distance: 12 # distance in meters between rows
+    height: 10 # slant height (without clearance)
     tilt: [30] # tilt of modules [0-90]
     azimuth: [180]

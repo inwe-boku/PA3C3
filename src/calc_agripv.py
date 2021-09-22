@@ -310,10 +310,10 @@ def areaselection():
                 & (lupolys['B_compact'] == True), 'PV'] = True
     lupolys.reset_index(inplace=True)
 
-    samples_per_ha = 0.25
     typer.echo(
         f"\tCreating random points ...")
-    points = rs.randompoints(lupolys[lupolys['PV']], samples_per_ha)
+    points = rs.randompoints(
+        lupolys[lupolys['PV']], config['landuse']['points_per_ha'])
     typer.echo(
         f"finished")
     typer.echo(
@@ -509,8 +509,7 @@ def pvsystemtest():
     mc = pvlib.modelchain.ModelChain(systemarray, location, aoi_model='no_loss',
                                      spectral_model='no_loss')
     mc.run_model(weather)
-    with pd.option_context('display.max_rows', None):
-        print(mc.results.ac)
+    return(mc)
 
 
 def pvsystem(pvsys, location):
@@ -532,8 +531,10 @@ def pvsystem(pvsys, location):
         modules_per_string=temp_modules_per_string
     )
     parrays = []
-    for azim in config['pvsystem'][pvsys]['azimuth']:
-        parrays.append(pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(config['pvsystem'][pvsys]['tilt'], azim), name='agripv',
+    for i in range(len(config['pvsystem'][pvsys]['azimuth'])):
+        parrays.append(pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(config['pvsystem'][pvsys]['tilt'][i],
+                                                                      config['pvsystem'][pvsys]['azimuth'][i]),
+                                            name='agripv',
                                             **parray))
     system = pvlib.pvsystem.PVSystem(
         arrays=parrays, inverter_parameters=inverter_parameters, strings_per_inverter=1)
@@ -682,6 +683,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     #    print(hdata)
     # exit(0)
     # idx = datetime
+    if dbg:
+        print('Number of points:', len(points))
+    store = pd.HDFStore(path.joinpath(Path.home(),
+                                      'pa3c3out',
+                                      'hourly.hdf'))
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
             if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
@@ -692,19 +698,26 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
                     hdata.at[hidx, 'dni'] = 0
 
-                    for pvsys in config['pvsystem'].keys():
-                        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
-                                                                         config['pvsystem'][pvsys]['height'],
-                                                                         config['pvsystem'][pvsys]['tilt'])
-                        mcsys = pvsystem(pvsys, pvlib.location.Location(
-                            prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
-                        mcsim=mcsys.run_model(hdata)
-                        with pd.option_context('display.max_rows', None):
-                            print(mcsim.results.ac)
+    for pvsys in config['pvsystem'].keys():
 
-    hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
-    ddata=pd.DataFrame(data=ddata)
-    ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
+        print(pvsys)
+        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
+                                                         config['pvsystem'][pvsys]['height'],
+                                                         config['pvsystem'][pvsys]['tilt'])
+        mcsys = pvsystem(pvsys, pvlib.location.Location(
+            prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
+        mcsim = mcsys.run_model(hdata)
+        # with pd.option_context('display.max_rows', None):
+        #    print(mcsim.results.ac)
+        store[str(prow['geometry'].y) + "-" +
+              str(prow['geometry'].x)] = mcsim.results.ac
+        mcsim.results.ac.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
+                                              str(prow['geometry'].x) + '.csv'))
+
+    store.close()
+    #hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
+    #ddata = pd.DataFrame(data=ddata)
+    #ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 
