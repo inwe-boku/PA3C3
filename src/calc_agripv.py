@@ -549,7 +549,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_configfile: Path = typer.Option(
              "cfg/testcfg.yml", "--config", "-c"),
          t_cccancfile: str = typer.Option(
-             "/data/Geodata/CCCA/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--cccanc", "-nc"),
+             "/data/projects/PA3C3/Input/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--cccanc", "-nc"),
+         t_dhmfile: str = typer.Option(
+             "/data/projects/PA3C3/Input/dhm_at_lamb_10m_2018.tif", "--dhm", "-dhm"),
          t_dbg: bool = typer.Option(False, "--debug", "-d")
          ):
 
@@ -603,7 +605,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(message)
         raise typer.Exit()
 
-    config['files']['dhm'] = Path(os.path.join(path, areaname, 'dhm.tif'))
+    t_dhmfile = Path(t_dhmfile)
+    if t_dhmfile.is_file():
+        config['files']['dhm'] = t_dhmfile
+    else:
+        config['files']['dhm'] = Path(os.path.join(path, areaname, 'dhm.tif'))
     if dbg:
         typer.echo(
             f"Reading DHM: {config['files']['dhm']}")
@@ -634,15 +640,22 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     # ds = gdal.Open(config['files']['dhm'])
     # dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
     with rasterio.open(config['files']['dhm'], 'r') as ds:
-        dem = ds.read()[0].astype(np.double)  # read all raster values
+        areabuf = area
+        areabuf['cat'] = 1
+        areabuf = areabuf.dissolve(by = 'cat').geometry.convex_hull.buffer(50000)
+        rs.writeGEO(areabuf, path.joinpath(Path.home(), 'pa3c3out'), 'area')
+        crop_dem, crop_tf = rasterio.mask.mask(ds, areabuf.geometry, crop=True)
+        #print(crop_tf)
+        #dem = crop_ds.read()[0].astype(np.double)  # read all raster values
         psx, psy = ds.res
+        #print(psx, psy)
         horangles = {}
         if dbg:
             typer.echo(
                 f"\tProcessing DEM")
         with typer.progressbar(angles) as progressangles:
             for a in progressangles:
-                horangles[a] = horizon(a, dem, psx)
+                horangles[a] = horizon(a, crop_dem, psx)
         if dbg:
             typer.echo(
                 f"\tProcessing Points")
