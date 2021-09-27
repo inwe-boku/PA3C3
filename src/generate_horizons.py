@@ -17,16 +17,15 @@ def main(t_dhm: str = typer.Option("/home/cmikovits/GEODATA/DHMAT/dhm_at_lamb_10
         typer.echo(
             f"\tDimensions: {width}x{height}\n\tResolution: {psx}"
         )
+        print(angles)
         dem = ds.read()[0].astype(np.double)  # read all raster values
-        
-        horangles = {}
-
-        typer.echo(
-            f"\tProcessing DEM with angles: ", angles)
-        with typer.progressbar(angles) as progressangles:
-            for a in progressangles:
-                result = horizon(a, dem, psx)
-                print(result.width)
+        print('read finish')
+        #typer.echo(
+        #    f"\tProcessing DEM with angles: ", angles)
+        #with typer.progressbar(angles) as progressangles:
+        #    for a in progressangles:
+        #        result = horizon(a, dem, psx)
+        #        print(result.width)
 
 
 if __name__ == "__main__":
