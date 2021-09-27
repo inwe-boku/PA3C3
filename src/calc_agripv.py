@@ -532,8 +532,9 @@ def pvsystem(pvsys, location):
     )
     parrays = []
     for i in range(len(config['pvsystem'][pvsys]['azimuth'])):
-        parrays.append(pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(config['pvsystem'][pvsys]['tilt'][i],
-                                                                      config['pvsystem'][pvsys]['azimuth'][i]),
+        tilt = config['pvsystem'][pvsys]['tilt'][i]
+        azim = config['pvsystem'][pvsys]['azimuth'][i]
+        parrays.append(pvlib.pvsystem.Array(pvlib.pvsystem.FixedMount(tilt, azim),
                                             name='agripv',
                                             **parray))
     system = pvlib.pvsystem.PVSystem(
@@ -623,7 +624,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     lupolys, points = areaselection()
 
-    points = points[1:5]
+    #points = points[1:5]
 
     # horizon calculation for each point (angle as COS)
     if dbg:
