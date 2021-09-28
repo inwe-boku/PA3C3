@@ -636,7 +636,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
             f"Calculation of angles for each point")
-    angles = np.arange(-180, 170, config['pvmod']['numangles'])
+    angles = np.arange(-180, 180, config['pvmod']['numangles'])
     # ds = gdal.Open(config['files']['dhm'])
     # dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
     with rasterio.open(config['files']['dhm'], 'r') as ds:
@@ -645,8 +645,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         areabuf = areabuf.dissolve(by = 'cat').geometry.convex_hull.buffer(50000)
         rs.writeGEO(areabuf, path.joinpath(Path.home(), 'pa3c3out'), 'area')
         crop_dem, crop_tf = rasterio.mask.mask(ds, areabuf.geometry, crop=True)
-        #print(crop_tf)
-        #dem = crop_ds.read()[0].astype(np.double)  # read all raster values
+        print(type(crop_dem))
+        crop_dem = crop_dem.astype(np.double)[0]  # read all raster values
         psx, psy = ds.res
         #print(psx, psy)
         horangles = {}

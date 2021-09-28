@@ -25,12 +25,13 @@ def calc_ccca_xy(nd, nx, ny, csrs='epsg:4326'):
     ([yloc], [xloc]) = np.where(c == np.min(c))
     return(xloc, yloc)
 
-def main(ncfile: Path = typer.Option("/home/cmikovits/Downloads/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--file", "-f"),
+def main(ncfile: Path = typer.Option("/data/projects/PA3C3/Input/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--file", "-f"),
          bbox: str = typer.Option("12.4321,12.5798,47.1177,47.2827", "--bbox", "-b")
          ):
 
     typer.echo(f"Netcdf File: {ncfile}, bounds: {bbox}")
     nd = xarray.open_dataset(ncfile)
+    print(nd.lat)
 
     [minx,maxx,miny,maxy] = [float(x) for x in bbox.split(',')]
 

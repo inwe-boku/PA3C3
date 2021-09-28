@@ -62,7 +62,7 @@ landuse:
   points_per_ha: 1
 
 pvmod:
-  numangles: 36 # 360/x
+  numangles: 60 # 360/x
   hmodel: "erbs"
 
 # gis defaults
