@@ -16,13 +16,15 @@
 .. calculate compactness (Schwartzberg algorithm) & filter
 .. calculate average slope & filter
 .. calculate altitude & filter
-. calculate sunrise/sunset for the area
-. calculate horizon for viewdirections
-- compare sun angle with horizon -> no direct irradiation if sun is below horizon
-- get CCCA Radiation Values
-- Daily to Hourly
-- Calculate PV Output of a System
-  
+. Sun & Radiation calculations
+.. calculate sunrise/sunset for the area
+.. calculate horizon for viewdirections
+.. compare sun angle with horizon -> no direct irradiation if sun is below horizon
+.. get CCCA Radiation Values
+.. Daily to Hourly
+.. manipulate hourly values according to sun/horizon situation
+. Calculate PV Output of a System
+.. includes self shading of modules
 
 
 ## Description
