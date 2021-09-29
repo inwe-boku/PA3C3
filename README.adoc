@@ -26,6 +26,12 @@
 . Calculate PV Output of a System
 .. includes self shading of modules
 
+## TODO
+
+.. Output ASCII for Erwin
+.. Output PV Production
+.. Crosscheck PV Production with *real* values
+
 
 ## Description
 
