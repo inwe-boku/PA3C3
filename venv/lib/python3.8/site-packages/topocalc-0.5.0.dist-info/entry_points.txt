@@ -1,0 +1,3 @@
+[console_scripts]
+topocalc = topocalc.cli:main
+

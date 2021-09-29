@@ -1,0 +1,4 @@
+[console_scripts]
+make_projected_nc = spatialnc.cli:make_projected_nc
+nc_stats = spatialnc.cli:nc_stats
+
