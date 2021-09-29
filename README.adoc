@@ -7,7 +7,6 @@
 . read DHM (raster)
 . read LU (raster)
 . calculate slope from DHM
-. create regular points on area
 . landuse calculations
 .. transform LU raster to LU polygons
 .. filter landuse values
@@ -18,7 +17,11 @@
 .. calculate average slope & filter
 .. calculate altitude & filter
 . calculate sunrise/sunset for the area
-. 
+. calculate horizon for viewdirections
+- compare sun angle with horizon -> no direct irradiation if sun is below horizon
+- get CCCA Radiation Values
+- Daily to Hourly
+- Calculate PV Output of a System
   
 
 
