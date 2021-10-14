@@ -10,6 +10,10 @@ from fiona.crs import from_epsg
 import os
 import tempfile
 import xarray
+import math
+from pathlib import Path
+import glob
+import gdal
 
 
 def reproj_raster(filename, dst_crs):
@@ -39,16 +43,11 @@ def reproj_raster(filename, dst_crs):
                     dst_crs=dst_crs,
                     resampling=Resampling.nearest)
     return(dst_file)
-    
 
-def main(t_dhm: str = typer.Option("exampledata/Felberthal/dhm.tif", "--dhm", "-d"),
-         t_ncf: str = typer.Option("/home/cmikovits/horizon.nc", "--netcdf", "-nc"),
-         t_angles: int = typer.Option(36, "--angles", "-a")):
+
+def create_npy(t_dhm, angles, npyout):
     typer.echo(
         f"Reading {t_dhm} to calculate horizons")
-    nc_filename = "/home/cmikovits/netcdftest.nc"
-    ncfile = nc.Dataset(nc_filename, 'w', format='NETCDF4')
-    angles = np.arange(-180, 180, t_angles)
 
     with rasterio.open(t_dhm, 'r') as ds:
         psx, psy = ds.res
@@ -59,42 +58,159 @@ def main(t_dhm: str = typer.Option("exampledata/Felberthal/dhm.tif", "--dhm", "-
         )
         dhmcrs = ds.crs
         dhmbounds = ds.bounds
-        dem = ds.read()[0].astype(np.double) #.swapaxes(0,1) # read all raster values
-        
-        ncfile.title = 'Horizon file'
-        ncfile.subtitle="My model data subtitle"
-        y_dim = ncfile.createDimension('y', height)     # latitude - y axis
-        x_dim = ncfile.createDimension('x', width)    # longitude - x axis
-        angle_dim = ncfile.createDimension('angle', len(angles)) # angles 180/-180 = N; 0 = S
-        
-        y = ncfile.createVariable('y', np.int32, ('y',))
-        y.units = 'meter'
-        y.long_name = 'y (lat)'
-        x = ncfile.createVariable('x', np.int32, ('x',))
-        x.units = 'meter'
-        x.long_name = 'x (lon)'
-        angle = ncfile.createVariable('angle', np.int32, ('angle',))
-        angle.units = 'angle from 180 to -180 (where 0 = S, minus towards East, plus towards West)'
-        angle.long_name = 'angle'
-        hor = ncfile.createVariable('horizon',np.float32,('angle','y','x')) # note: unlimited dimension is leftmost
-        hor.units = 'degree' # degrees Kelvin
-        hor.standard_name = 'horizon angle in degrees' # this is a CF standard name
-        ny = len(y_dim); nx = len(x_dim); nangle = len(angles)
-        
-        y[:] = dhmbounds.bottom + (dhmbounds.top/ny)*np.arange(ny)
-        x[:] = dhmbounds.left + (dhmbounds.left/nx)*np.arange(nx)
-        angle[:] = angles
+        # .swapaxes(0,1) # read all raster values
+        dem = ds.read()[0].astype(np.double)
+
         #angle[:] = angles
         typer.echo(
             f"\tProcessing DEM with angles: {angles}")
+
         with typer.progressbar(angles) as progressangles:
             for idx, a in enumerate(progressangles):
                 result = horizon(a, dem, psx)
-                hor[idx,:,:] = result
-    
+                filename = os.path.join(npyout, str(a))
+                np.save(filename, result)
+                del(result)
+
+
+def stich_npy(nc_filename, angles, outfolder, t_npy):
+    ncfile = nc.Dataset(nc_filename, 'r+', format='NETCDF4')
+    hor = ncfile['horizon']
+    print(hor)
+    for idx, a in enumerate(angles):
+        angle = ncfile['angle'][idx]
+        filename = os.path.join(outfolder, str(angles[0]))
+        if t_npy:
+            filename = str(filename) + '.npy'
+            result = np.load(filename)
+        else:
+            filename = os.path.join(outfolder, str(angles[0]))
+            filename = str(filename) + '.tif'
+            with rasterio.open(filename, 'r') as ds:
+                print(ds.tags())
+                #psx, psy = ds.res
+                #width = ds.width
+                #height = ds.height
+                #dhmcrs = ds.crs
+                #print(ds.crs)
+                #dhmbounds = ds.bounds
+                # .swapaxes(0,1) # read all raster values
+                #test = ds.read(1)
+                #print(test)
+                #print(test.shape)
+                result = ds.read()[0].astype(np.double)
+                print(result)
+            # tif result = radians -> conversion to degrees
+            #result = np.degrees(result)
+            #print(np.median(result))
+        exit(0)
+        result = result.clip(min=0)
+        hor[idx, :, :] = result
+
     ncfile.close()
+
+
+def main(t_dhm: str = typer.Option("exampledata/Felberthal/dhm.tif", "--dhm", "-d"),
+         t_out: str = typer.Option("out", "--out", "-o"),
+         t_angles: int = typer.Option(10, "--angles", "-a"),
+         t_resume: bool = typer.Option(False, "--resume", "-r"),
+         t_stitch: bool = typer.Option(False, "--stitch", "-s"),
+         t_npy: bool = typer.Option(True, "--npy", "-n")):
+
+    angles = np.arange(-180, 180, t_angles)
+    
+    nc_filename = os.path.join(Path.home(), t_out, 'horizons.nc')
+    
+    outfolder = t_out
+    if t_npy:
+        npyfolder = os.path.join(Path.home(), t_out, 'npy')
+
+        if not os.path.exists(npyfolder):
+            os.makedirs(npyfolder, exist_ok=True)
+
+    if t_stitch:
+        if t_npy:
+            outfolder = npyfolder
+        #filename = os.path.join(outfolder, 'dimensions')
+        #print(filename)
+        with rasterio.open(t_dhm, 'r') as ds:
+            psx, psy = ds.res
+            width = ds.width
+            height = ds.height
+            typer.echo(
+                f"\tDimensions: {height}x{width}\n\tResolution: {psx}"
+            )
+            dhmcrs = ds.crs
+            dhmbounds = ds.bounds
+        if t_resume:
+            typer.echo(
+                f"STITCHING to EXISTING file: {nc_filename}")
+        else:
+            typer.echo(
+                f"STITCHING to NEW file: {nc_filename}")
+            filename = os.path.join(outfolder, str(angles[0]))
+            if t_npy:
+                filename = str(filename) + '.npy'
+                result = np.load(filename)
+            else:
+                filename = os.path.join(outfolder, str(angles[0]))
+                filename = str(filename) + '.tif'
+                tifgdal = gdal.Open(filename)
+                tifdata = tifgdal.GetRasterBand(1)
+                result = tifdata.ReadAsArray()
+            height = result.shape[0]
+            width = result.shape[1]
+            ncfile = nc.Dataset(nc_filename, 'w', format='NETCDF4')
+            ncfile.title = 'Horizon file'
+            ncfile.subtitle = "My model data subtitle"
+            y_dim = ncfile.createDimension('y', height)     # latitude - y axis
+            x_dim = ncfile.createDimension('x', width)    # longitude - x axis
+            angle_dim = ncfile.createDimension(
+                'angle', len(angles))  # angles 180/-180 = N; 0 = S
+
+            y = ncfile.createVariable('y', np.uint32, ('y',))
+            y.units = 'meter'
+            y.long_name = 'y (lat)'
+            x = ncfile.createVariable('x', np.uint32, ('x',))
+            x.units = 'meter'
+            x.long_name = 'x (lon)'
+            angle = ncfile.createVariable('angle', np.int16, ('angle',))
+            angle.units = 'angle from 180 to -180 (where 0 = S, minus towards East, plus towards West)'
+            angle.long_name = 'angle'
+            # note: unlimited dimension is leftmost
+            hor = ncfile.createVariable(
+                'horizon', np.float32, ('angle', 'y', 'x'), zlib=True, least_significant_digit=3)
+            hor.units = 'degree'  # degrees
+            hor.standard_name = 'horizon angle, 0 = flat, 90 = maximum zenith'  # this is a CF standard name
+            ny = len(y_dim)
+            nx = len(x_dim)
+            nangle = len(angles)
+
+            y[:] = dhmbounds.bottom + (dhmbounds.top/ny)*np.arange(ny)
+            x[:] = dhmbounds.left + (dhmbounds.left/nx)*np.arange(nx)
+            angle[:] = angles
+            ncfile.close()
+            stich_npy(nc_filename, angles, outfolder, t_npy)
+
+    else:
+        if t_resume:
+            typer.echo(
+                f"RESUMING horizons from: {t_dhm}")
+            npyfiles = glob.glob(os.path.join(npyfolder, "*"))
+            for npyf in npyfiles:
+                npyf = os.path.basename(npyf)
+                npyf = os.path.splitext(npyf)[0]
+                #print(np.where(angles == int(npyf)))
+                angles = np.delete(angles, np.where(angles == int(npyf)))
+            create_npy(t_dhm, angles, npyfolder)
+        else:
+            typer.echo(
+                f"CREATING horizons from: {t_dhm}")
+            create_npy(t_dhm, angles, npyfolder)
+
     typer.echo(
         f"Horizon calculation finished")
+
 
 if __name__ == "__main__":
     typer.run(main)
