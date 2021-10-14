@@ -7,7 +7,6 @@
 . read DHM (raster)
 . read LU (raster)
 . calculate slope from DHM
-. create regular points on area
 . landuse calculations
 .. transform LU raster to LU polygons
 .. filter landuse values
@@ -17,9 +16,21 @@
 .. calculate compactness (Schwartzberg algorithm) & filter
 .. calculate average slope & filter
 .. calculate altitude & filter
-. calculate sunrise/sunset for the area
-. 
-  
+. Sun & Radiation calculations
+.. calculate sunrise/sunset for the area
+.. calculate horizon for viewdirections
+.. compare sun angle with horizon -> no direct irradiation if sun is below horizon
+.. get CCCA Radiation Values
+.. Daily to Hourly
+.. manipulate hourly values according to sun/horizon situation
+. Calculate PV Output of a System
+.. includes self shading of modules
+
+## TODO
+
+.. Output ASCII for Erwin
+.. Output PV Production
+.. Crosscheck PV Production with *real* values
 
 
 ## Description
