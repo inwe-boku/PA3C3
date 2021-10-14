@@ -13,7 +13,7 @@ import xarray
 import math
 from pathlib import Path
 import glob
-import gdal
+#import gdal
 
 
 def reproj_raster(filename, dst_crs):
@@ -155,9 +155,8 @@ def main(t_dhm: str = typer.Option("exampledata/Felberthal/dhm.tif", "--dhm", "-
             else:
                 filename = os.path.join(outfolder, str(angles[0]))
                 filename = str(filename) + '.tif'
-                tifgdal = gdal.Open(filename)
-                tifdata = tifgdal.GetRasterBand(1)
-                result = tifdata.ReadAsArray()
+                with rasterio.open(filename, 'r') as ds:
+                    result = ds.read()[0].astype(np.double)
             height = result.shape[0]
             width = result.shape[1]
             ncfile = nc.Dataset(nc_filename, 'w', format='NETCDF4')
