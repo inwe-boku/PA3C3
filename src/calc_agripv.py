@@ -676,38 +676,37 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     rs.writeGEO(areabuf, path.joinpath(
         Path.home(), 'pa3c3out'), 'area')
 
-    if config['files']['hornc']:
+    for idx, row in points.iterrows():
+        if dbg:
+            typer.echo(
+                f"\tProcessing Points")
+        if config['files']['hornc']:
+            horangles = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
+            print(hors)
+        else:
+            with rasterio.open(config['files']['dhm'], 'r') as ds:
+                crop_dem, crop_tf = rasterio.mask.mask(
+                    ds, areabuf.geometry, crop=True)
+                # print(type(crop_dem))
+                # read all raster values
+                crop_dem = crop_dem.astype(np.double)[0]
+                psx, psy = ds.res
+                #print(psx, psy)
+                horangles = {}
+                if dbg:
+                    typer.echo(
+                        f"\tProcessing DEM")
+                with typer.progressbar(angles) as progressangles:
+                    for a in progressangles:
+                        horangles[a] = horizon(a, crop_dem, psx)
 
-        hors = get_horizon_values(hornc, nx, ny)
-        print(hors)
-        exit(0)
-    else:
-        with rasterio.open(config['files']['dhm'], 'r') as ds:
-
-            crop_dem, crop_tf = rasterio.mask.mask(
-                ds, areabuf.geometry, crop=True)
-            print(type(crop_dem))
-            crop_dem = crop_dem.astype(np.double)[0]  # read all raster values
-            psx, psy = ds.res
-            #print(psx, psy)
-            horangles = {}
-            if dbg:
-                typer.echo(
-                    f"\tProcessing DEM")
-            with typer.progressbar(angles) as progressangles:
-                for a in progressangles:
-                    horangles[a] = horizon(a, crop_dem, psx)
-            if dbg:
-                typer.echo(
-                    f"\tProcessing Points")
-            for idx, row in points.iterrows():
-                res = []
-                for a in angles:
-                    py, px = ds.index(row.geometry.x, row.geometry.y)
-                    res.append(
-                        round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
-                res = json.dumps(res)
-                points.at[idx, 'horizon'] = [res]
+        res = []
+        for a in angles:
+            py, px = ds.index(row.geometry.x, row.geometry.y)
+            res.append(
+                round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
+        res = json.dumps(res)
+        points.at[idx, 'horizon'] = [res]
 
     # sunrise / sunset at area center
     # readNETCDF
