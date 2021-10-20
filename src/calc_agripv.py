@@ -77,6 +77,23 @@ def get_ccca_values(nd, nx, ny, date):
     return(nd.sel(x=nx, y=ny, method='nearest', time=date,))
 
 
+def get_horizon_values(nd, nx, ny):
+    """
+    Calculates x and y values from a netcdf file for given coordinates from a
+    point with lat / lon values.
+    The netcdf is expected to have a format as used by the CCCA.
+
+    Parameters
+    ----------
+    nd : open netcdf file (netcdf data)
+
+    Returns
+    -------
+    x, y : values (integer)
+    """
+    return(nd.sel(x=nx, y=ny, method='nearest'))
+
+
 def sunset_time(location, date):
     """[summary]
 
@@ -552,6 +569,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
              "/data/projects/PA3C3/Input/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--cccanc", "-nc"),
          t_dhmfile: str = typer.Option(
              "/data/projects/PA3C3/Input/dhm_at_lamb_10m_2018.tif", "--dhm", "-dhm"),
+         t_horfile: str = typer.Option(
+             "/data/projects/PA3C3/Input/horizon_austria.nc", "--hornc", "-hor"),
+         t_dhmhor: bool = typer.Option(False, "--dhmhor", "-dh"),
          t_dbg: bool = typer.Option(False, "--debug", "-d")
          ):
 
@@ -584,6 +604,10 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     config['files'] = {}
     config['files']['area'] = Path(os.path.join(path, areaname, 'area.shp'))
     config['files']['cccanc'] = Path(t_cccancfile)
+    config['files']['hornc'] = Path(t_horfile)
+    # calculate horizon on the fly
+    if t_dhmhor:
+        config['files']['hornc'] = False
 
     if dbg:
         typer.echo(
@@ -622,14 +646,19 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(message)
         raise typer.Exit()
 
+    if (config['files']['hornc'] and config['files']['hornc'].is_file()):
+        hornc = xarray.open_dataset(config['files']['hornc'])
+    else:
+        message = typer.style(str(config['files']['hornc']), fg=typer.colors.WHITE,
+                              bg=typer.colors.RED, bold=True) + " does not exist"
+        typer.echo(message)
+        raise typer.Exit()
+
     if dbg:
         typer.echo(
             f"Selecting areas")
 
-    # PVmoduleinfo()
-
     lupolys, points = areaselection()
-
     #points = points[1:5]
 
     # horizon calculation for each point (angle as COS)
@@ -639,34 +668,46 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     angles = np.arange(-180, 180, config['pvmod']['numangles'])
     # ds = gdal.Open(config['files']['dhm'])
     # dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
-    with rasterio.open(config['files']['dhm'], 'r') as ds:
-        areabuf = area
-        areabuf['cat'] = 1
-        areabuf = areabuf.dissolve(by = 'cat').geometry.convex_hull.buffer(50000)
-        rs.writeGEO(areabuf, path.joinpath(Path.home(), 'pa3c3out'), 'area')
-        crop_dem, crop_tf = rasterio.mask.mask(ds, areabuf.geometry, crop=True)
-        print(type(crop_dem))
-        crop_dem = crop_dem.astype(np.double)[0]  # read all raster values
-        psx, psy = ds.res
-        #print(psx, psy)
-        horangles = {}
-        if dbg:
-            typer.echo(
-                f"\tProcessing DEM")
-        with typer.progressbar(angles) as progressangles:
-            for a in progressangles:
-                horangles[a] = horizon(a, crop_dem, psx)
-        if dbg:
-            typer.echo(
-                f"\tProcessing Points")
-        for idx, row in points.iterrows():
-            res = []
-            for a in angles:
-                py, px = ds.index(row.geometry.x, row.geometry.y)
-                res.append(
-                    round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
-            res = json.dumps(res)
-            points.at[idx, 'horizon'] = [res]
+
+    areabuf = area
+    areabuf['cat'] = 1
+    areabuf = areabuf.dissolve(
+        by='cat').geometry.convex_hull.buffer(50000)
+    rs.writeGEO(areabuf, path.joinpath(
+        Path.home(), 'pa3c3out'), 'area')
+
+    if config['files']['hornc']:
+
+        hors = get_horizon_values(hornc, nx, ny)
+        print(hors)
+        exit(0)
+    else:
+        with rasterio.open(config['files']['dhm'], 'r') as ds:
+
+            crop_dem, crop_tf = rasterio.mask.mask(
+                ds, areabuf.geometry, crop=True)
+            print(type(crop_dem))
+            crop_dem = crop_dem.astype(np.double)[0]  # read all raster values
+            psx, psy = ds.res
+            #print(psx, psy)
+            horangles = {}
+            if dbg:
+                typer.echo(
+                    f"\tProcessing DEM")
+            with typer.progressbar(angles) as progressangles:
+                for a in progressangles:
+                    horangles[a] = horizon(a, crop_dem, psx)
+            if dbg:
+                typer.echo(
+                    f"\tProcessing Points")
+            for idx, row in points.iterrows():
+                res = []
+                for a in angles:
+                    py, px = ds.index(row.geometry.x, row.geometry.y)
+                    res.append(
+                        round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
+                res = json.dumps(res)
+                points.at[idx, 'horizon'] = [res]
 
     # sunrise / sunset at area center
     # readNETCDF
