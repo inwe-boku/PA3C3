@@ -231,7 +231,7 @@ def reproj_raster(filename, dst_crs):
 
 def slope_from_dhm(dhmname):
     extension = os.path.splitext(dhmname)[1]
-    descriptor, slope_file = tempfile.mkstemp(suffix=extension)
+    descriptor, slope_file = tempfile.mkstemp(prefix='pa3c3slope', suffix=extension)
     opts = gdal.DEMProcessingOptions(scale=111120)
     gdal.DEMProcessing(slope_file, str(dhmname), 'slope')  # , options=opts)
     return(slope_file)
@@ -648,7 +648,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     if (config['files']['hornc'] and config['files']['hornc'].is_file()):
         hornc = xarray.open_dataset(config['files']['hornc'])
-    else:
+    elif config['files']['hornc']:
         message = typer.style(str(config['files']['hornc']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
         typer.echo(message)
@@ -676,13 +676,18 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     rs.writeGEO(areabuf, path.joinpath(
         Path.home(), 'pa3c3out'), 'area')
 
+
+
     for idx, row in points.iterrows():
         if dbg:
             typer.echo(
                 f"\tProcessing Points")
         if config['files']['hornc']:
-            horangles = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
-            print(hors)
+            horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
+            print(points.crs)
+            print(hornc.spatialref)
+            horvalues = horres['horizon'].values
+            exit(0)
         else:
             with rasterio.open(config['files']['dhm'], 'r') as ds:
                 crop_dem, crop_tf = rasterio.mask.mask(
@@ -699,6 +704,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 with typer.progressbar(angles) as progressangles:
                     for a in progressangles:
                         horangles[a] = horizon(a, crop_dem, psx)
+                print(horangles)
 
         res = []
         for a in angles:
