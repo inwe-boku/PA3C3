@@ -684,10 +684,10 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 f"\tProcessing Points")
         if config['files']['hornc']:
             horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
-            print(points.crs)
-            print(hornc.spatialref)
-            horvalues = horres['horizon'].values
-            exit(0)
+            #print(points.crs)
+            #print(hornc.spatialref)
+            res = horres['horizon'].values
+            res = np.subtract(90,res).tolist()
         else:
             with rasterio.open(config['files']['dhm'], 'r') as ds:
                 crop_dem, crop_tf = rasterio.mask.mask(
@@ -704,16 +704,16 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 with typer.progressbar(angles) as progressangles:
                     for a in progressangles:
                         horangles[a] = horizon(a, crop_dem, psx)
-                print(horangles)
-
-        res = []
-        for a in angles:
-            py, px = ds.index(row.geometry.x, row.geometry.y)
-            res.append(
-                round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
+                #print(horangles)
+                res = []
+                for a in angles:
+                    py, px = ds.index(row.geometry.x, row.geometry.y)
+                    res.append(
+                        round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
         res = json.dumps(res)
+        #print(res)
         points.at[idx, 'horizon'] = [res]
-
+    #print(points)
     # sunrise / sunset at area center
     # readNETCDF
     if dbg:
@@ -768,13 +768,23 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
         mcsim = mcsys.run_model(hdata)
         # with pd.option_context('display.max_rows', None):
-        #    print(mcsim.results.ac)
+        res = mcsim.results.ac
+        res[res < 0] = 0
         store[str(prow['geometry'].y) + "-" +
-              str(prow['geometry'].x)] = mcsim.results.ac
-        mcsim.results.ac.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
+              str(prow['geometry'].x)] = res
+        res.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
                                               str(prow['geometry'].x) + '.csv'))
 
     store.close()
+
+    ### statistics for hdata
+    daily = res.resample('D').mean()
+    hourly = res.groupby(res.index.hour).mean()
+    print(hourly)
+    print(daily)
+    ### output for EPIC
+
+
     #hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
     #ddata = pd.DataFrame(data=ddata)
     #ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))

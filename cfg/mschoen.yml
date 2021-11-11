@@ -1,0 +1,43 @@
+ccca:
+  startyears: [2015] #, 2030, 2045]
+  timeframe: 5 # in years
+  crs: "epsg:4326"
+  tz: "UTC"
+
+landuse:
+  # land use fields available for PV
+  free: [
+      154
+    ]
+  # m2 needed for one kWp
+  # m2kWp: 20
+  # maximum altitude
+  maxalt: 1950
+  # maximum slope (in percent)
+  maxslope: 20
+  minarea: 9999
+  mincompactness: 0.22 #0.22
+
+  points_per_ha: 1
+
+pvmod:
+  numangles: 30 # 360/12
+  hmodel: "erbs"
+
+# gis defaults
+gis:
+  processcrs: "epsg:31287"
+
+pvsystem:
+  0:
+    name: "1kWp"
+    type: "single"
+    module: "Aleo_Solar_S18y250"
+    inverter: "AEG_Power_Solutions__Protect_PV_500_UL" # 280W
+    # "ABB__MICRO_0_3_I_OUTD_US_240_240V__CEC_2014_" "ABB: MICRO-0.3-I-OUTD-US-240 [240V]"
+    modules_per_string: 4 # = 1120Wp; number of modules per row
+    strings: 1 # number of rows
+    distance: 100 # distance in meters between rows
+    height: 1 # slant height (without clearance)
+    tilt: [20] # tilt of modules [0-90]
+    azimuth: [175]
