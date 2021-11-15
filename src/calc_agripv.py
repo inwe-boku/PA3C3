@@ -30,6 +30,8 @@ from pprint import pprint
 import tempfile
 import renspatial as rs
 
+pd.set_option("max_rows", 9999)
+
 # constants
 
 DEFAULTPATH = os.path.join('exampledata')
@@ -536,16 +538,17 @@ def pvsystem(pvsys, location):
     inverter_parameters = cecinverters[config['pvsystem'][pvsys]['inverter']]
     temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
         'sapm']['open_rack_glass_glass']
-    temp_strings = 2
-    temp_modules_per_string = 10
-    mult = config['pvsystem'][pvsys]['modules_per_string'] * \
-        config['pvsystem'][pvsys]['strings'] / \
-        temp_strings/temp_modules_per_string
+    #temp_strings = 2
+    #temp_modules_per_string = 5
+    #mult = config['pvsystem'][pvsys]['modules_per_string'] * \
+    #    config['pvsystem'][pvsys]['strings'] / \
+    #    temp_strings/temp_modules_per_string
     parray = dict(
         module_parameters=module_parameters,
         temperature_model_parameters=temperature_model_parameters,
-        strings=temp_strings,
-        modules_per_string=temp_modules_per_string
+        modules_per_string=config['pvsystem'][pvsys]['modules_per_string'],
+        strings=config['pvsystem'][pvsys]['strings']
+        #strings_per_inverter=config['pvsystem'][pvsys]['strings']
     )
     parrays = []
     for i in range(len(config['pvsystem'][pvsys]['azimuth'])):
@@ -555,7 +558,7 @@ def pvsystem(pvsys, location):
                                             name='agripv',
                                             **parray))
     system = pvlib.pvsystem.PVSystem(
-        arrays=parrays, inverter_parameters=inverter_parameters, strings_per_inverter=1)
+        arrays=parrays, inverter_parameters=inverter_parameters)
     mc = pvlib.modelchain.ModelChain(system, location, aoi_model='physical',
                                      spectral_model='no_loss')
     return(mc)
@@ -778,10 +781,16 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     store.close()
 
     ### statistics for hdata
-    daily = res.resample('D').mean()
-    hourly = res.groupby(res.index.hour).mean()
-    print(hourly)
-    print(daily)
+    res = res * 2
+    print(res.head(5000))
+    daily = res.resample('D').sum()/1000
+    print(daily.head(365))
+    monthly = res.resample('M').sum()/1000
+    
+    print(monthly.head(99))
+    #print(hourly)
+    #print(daily.head(365))
+    
     ### output for EPIC
 
 
