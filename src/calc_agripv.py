@@ -378,15 +378,25 @@ def areaselection():
 def gendates(startyears, ylength):
     dates360 = {}
     dates = {}
+    #print('gendates')
     for y in startyears:
         startdt360 = cftime.Datetime360Day(y, 1, 1, 12, 0, 0, 0)
+        enddt360 = cftime.Datetime360Day(y+ylength-1,12,30,12,0,0,0)
         dates360[y] = xarray.cftime_range(
-            start=startdt360, periods=365*ylength, freq='D')
+            start=startdt360, end=enddt360, freq='D', calendar = '360_day')
         startdt = datetime.datetime.strptime(str(y)+"-01-01", "%Y-%m-%d")
         enddt = datetime.datetime.strptime(
             str(y+ylength-1)+"-12-31", "%Y-%m-%d")
-        dates[y] = [
+        datestemp = [
             startdt + datetime.timedelta(days=x) for x in range(0, (enddt-startdt).days)]
+        #for ly in range(y, (y+ylength-1)):
+        #    try:
+        #        datestemp.remove(datetime.datetime.strptime(str(ly)+"-02-29", "%Y-%m-%d"))
+        #    except:
+        #        pass
+        dates[y] = datestemp
+        #print(len(dates360[y]))
+        #print(len(dates[y]))
     return(dates360, dates)
 
 
@@ -404,20 +414,26 @@ def cccapoints(nd, points, daterange):
             # daterange = daterange.to_datetimeindex
             res = get_ccca_values(nd, nx, ny, daterange)
             rsds_values = res['rsds'].values
+            daterangenew = daterange.to_datetimeindex()
+            print(type(daterangenew))
             cccadict[nxnykey] = {}
             cccadict[nxnykey]['rsds'] = rsds_values  # fill numpy ndarray
             cccadict[nxnykey]['date'] = daterange
             cccadict[nxnykey]['geom'] = row.geometry
             cccadict[nxnykey]['altitude'] = row.altitude
+            print(cccadict)
+            exit(0)
     return(points, cccadict)
 
 
-def ghid2ghih(ddata, daterange, location):
+def ghid2ghih(ddata, daterange, dates360, location):
     i = 0
     data = pd.DataFrame()
-    while i < len(daterange):
-        date = daterange[i]
+    while i < len(ddata):
         dval = ddata[i]*1000/24
+        date = dates360[i]
+        print(date)
+        #date = daterange[i]
         # sunset azimuth
         settime = sunset_time(location, date)
         solar_position = location.get_solarposition(settime)
@@ -725,6 +741,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     dates360, dates = gendates(
         config['ccca']['startyears'], config['ccca']['timeframe'])
+    #print(dates360)
+    #print(dates)
     for year, daterange in dates360.items():
         points, cccadict = cccapoints(nd, points, daterange)
 
@@ -737,7 +755,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
-            hdata = ghid2ghih(ddata, daterange, location)
+            hdata = ghid2ghih(ddata, daterange, dates360[year], location)
             hdata['location'] = geom
             # DNI+DHI hourly
             hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
@@ -782,12 +800,23 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     ### statistics for hdata
     res = res * 2
-    print(res.head(5000))
+    res = res.reset_index(name='kWh')
+    print(res.head(144))
+    res = res.set_index('index')
+    print(res.head(144))
+    res.to_csv('hdata.csv')
+    #res = res.rename('kWh')
     daily = res.resample('D').sum()/1000
-    print(daily.head(365))
+    #print(daily.head(365))
+    daily.to_csv('ddata.csv')
     monthly = res.resample('M').sum()/1000
+
+    monthly.to_csv('mdata.csv')
+    print(monthly.head(12))
+    amonthly = monthly.groupby(monthly.index.month).kWh.mean()
     
-    print(monthly.head(99))
+    amonthly.to_csv('amdata.csv')
+    print(amonthly.head(12))
     #print(hourly)
     #print(daily.head(365))
     
