@@ -19,6 +19,7 @@ from topocalc.horizon import horizon
 from topocalc.gradient import gradient_d8
 from topocalc.viewf import viewf
 from osgeo import gdal
+import calendar
 # import pycrs
 
 import rasterio.features
@@ -233,7 +234,8 @@ def reproj_raster(filename, dst_crs):
 
 def slope_from_dhm(dhmname):
     extension = os.path.splitext(dhmname)[1]
-    descriptor, slope_file = tempfile.mkstemp(prefix='pa3c3slope', suffix=extension)
+    descriptor, slope_file = tempfile.mkstemp(
+        prefix='pa3c3slope', suffix=extension)
     opts = gdal.DEMProcessingOptions(scale=111120)
     gdal.DEMProcessing(slope_file, str(dhmname), 'slope')  # , options=opts)
     return(slope_file)
@@ -375,32 +377,26 @@ def areaselection():
     return(lupolys, points)
 
 
-def gendates(startyears, ylength):
-    dates360 = {}
+def gendates360(startyears, ylength):
     dates = {}
-    #print('gendates')
     for y in startyears:
-        startdt360 = cftime.Datetime360Day(y, 1, 1, 12, 0, 0, 0)
-        enddt360 = cftime.Datetime360Day(y+ylength-1,12,30,12,0,0,0)
-        dates360[y] = xarray.cftime_range(
-            start=startdt360, end=enddt360, freq='D', calendar = '360_day')
-        startdt = datetime.datetime.strptime(str(y)+"-01-01", "%Y-%m-%d")
-        enddt = datetime.datetime.strptime(
-            str(y+ylength-1)+"-12-31", "%Y-%m-%d")
-        datestemp = [
-            startdt + datetime.timedelta(days=x) for x in range(0, (enddt-startdt).days)]
-        #for ly in range(y, (y+ylength-1)):
-        #    try:
-        #        datestemp.remove(datetime.datetime.strptime(str(ly)+"-02-29", "%Y-%m-%d"))
-        #    except:
-        #        pass
-        dates[y] = datestemp
-        #print(len(dates360[y]))
-        #print(len(dates[y]))
-    return(dates360, dates)
+        startdt = cftime.Datetime360Day(y, 1, 1, 12, 0, 0, 0)
+        enddt = cftime.Datetime360Day(y+ylength-1, 12, 30, 12, 0, 0, 0)
+        dates[y] = xarray.cftime_range(
+            start=startdt, end=enddt, freq='D', calendar='360_day')
+    return(dates)
 
 
-def cccapoints(nd, points, daterange):
+def gendates365(startyears, ylength):
+    dates = {}
+    for y in startyears:
+        dr = pd.date_range(start=str(y)+"-01-01",
+                           end=str(y+ylength-1)+"-12-31", freq='1d')
+        dates[y] = dr[(dr.day != 29) | (dr.month != 2)]
+    return(dates)
+
+
+def cccapoints(nd, points, daterange, daterange365):
     points = points.to_crs(config['ccca']['crs'])
     cccadict = {}
     for idx, row in points.iterrows():
@@ -411,29 +407,59 @@ def cccapoints(nd, points, daterange):
         points.loc[idx, 'nxny'] = nxnykey
         # nxny.append(nxnykey)
         if not nxnykey in cccadict.keys():
-            # daterange = daterange.to_datetimeindex
             res = get_ccca_values(nd, nx, ny, daterange)
             rsds_values = res['rsds'].values
-            daterangenew = daterange.to_datetimeindex()
-            print(type(daterangenew))
+            values = values_day360_day365(rsds_values)
             cccadict[nxnykey] = {}
-            cccadict[nxnykey]['rsds'] = rsds_values  # fill numpy ndarray
-            cccadict[nxnykey]['date'] = daterange
+            cccadict[nxnykey]['rsds'] = values  # fill numpy ndarray
+            cccadict[nxnykey]['date'] = daterange365
             cccadict[nxnykey]['geom'] = row.geometry
             cccadict[nxnykey]['altitude'] = row.altitude
-            print(cccadict)
-            exit(0)
+
     return(points, cccadict)
 
 
-def ghid2ghih(ddata, daterange, dates360, location):
+def values_day360_day365(values):
+    np.set_printoptions(threshold=np.Inf)
+    valchunks = np.array_split(values, 3)
+    #years = np.unique(daterange.year)
+    #indleap = [31, 91, 151, 211, 271, 331]
+    indnoleap = [91, 151, 211, 271, 331]
+    for i in range(0, len(valchunks)):
+        # if calendar.isleap(years[i]):
+        #    valchunks[i] = np.insert(valchunks[i], indleap, np.nan)
+        # else:
+        valchunks[i] = np.insert(valchunks[i], indnoleap, np.nan)
+    values = np.concatenate(valchunks)
+    nans, x = nan_helper(values)
+    values[nans] = np.interp(x(nans), x(~nans), values[~nans])
+    return(values)
+
+
+def nan_helper(y):
+    """Helper to handle indices and logical indices of NaNs.
+
+    Input:
+        - y, 1d numpy array with possible NaNs
+    Output:
+        - nans, logical indices of NaNs
+        - index, a function, with signature indices= index(logical_indices),
+          to convert logical indices of NaNs to 'equivalent' indices
+    Example:
+        >>> # linear interpolation of NaNs
+        >>> nans, x= nan_helper(y)
+        >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
+    """
+
+    return(np.isnan(y), lambda z: z.nonzero()[0])
+
+
+def ghid2ghih(ddata, daterange, location):
     i = 0
     data = pd.DataFrame()
     while i < len(ddata):
         dval = ddata[i]*1000/24
-        date = dates360[i]
-        print(date)
-        #date = daterange[i]
+        date = daterange[i]
         # sunset azimuth
         settime = sunset_time(location, date)
         solar_position = location.get_solarposition(settime)
@@ -447,15 +473,18 @@ def ghid2ghih(ddata, daterange, dates360, location):
         w_h = np.around(solar_position['azimuth'].values, decimals=2)
         # zenith of sun
         z_h = np.around(solar_position['zenith'].values, decimals=2)
-
+        z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
+        cos_z_h = np.cos(np.deg2rad(z_h))
+        #cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
+        
         # daily to hourly values
         ratio = rad_d2h_liu(w_s, w_h)
         # ratio = np.roll(ratio, 1)
         # print(dval, ratio)
         hvalues = np.around(dval*ratio, decimals=2)
-        tempdata = np.stack([w_h, z_h, hvalues], axis=1)
+        tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, hvalues], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
-                             columns=['w_h', 'z_h', 'ghi'])
+                             columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ghi'])
         data = data.append(hdata)
         i += 1
     return(data)
@@ -463,16 +492,19 @@ def ghid2ghih(ddata, daterange, dates360, location):
 
 def ghi2dni(data, model='disc'):
     if model == 'disc':
-        dnidata = pvlib.irradiance.disc(data['ghi'], data['z_h'], data.index)
-        # pvlib.irradiance.dni
-    elif model == 'dirint':
-        dnidata = pvlib.irradiance.dirint(data['ghi'], data['z_h'], data.index)
+        dnidata = pvlib.irradiance.disc(
+            ghi=data['ghi'], solar_zenith=data['z_h'], datetime_or_doy=data.index)
+        data = pd.concat([data, dnidata], axis=1)
+        data.dni = data.dni.round(decimals=2)
+        data['dhi'] = data.ghi - (data.dni * data.cos_z_h)
+        data.kt = data.kt.round(decimals=5)
     elif model == 'erbs':
-        dnidata = pvlib.irradiance.erbs(data['ghi'], data['z_h'], data.index)
-    data = pd.concat([data, dnidata], axis=1)
-    data.dni = data.dni.round(decimals=2)
-    data.dhi = data.dhi.round(decimals=2)
-    data.kt = data.kt.round(decimals=5)
+        dnidata = pvlib.irradiance.erbs(
+            ghi=data['ghi'], zenith=data['z_h'], datetime_or_doy=data.index, min_cos_zenith=0.065, max_zenith=85)
+        data = pd.concat([data, dnidata], axis=1)
+        data.dni = data.dni.round(decimals=2)
+        data.dhi = data.dhi.round(decimals=2)
+        data.kt = data.kt.round(decimals=5)
     return(data)
 
 
@@ -556,7 +588,7 @@ def pvsystem(pvsys, location):
         'sapm']['open_rack_glass_glass']
     #temp_strings = 2
     #temp_modules_per_string = 5
-    #mult = config['pvsystem'][pvsys]['modules_per_string'] * \
+    # mult = config['pvsystem'][pvsys]['modules_per_string'] * \
     #    config['pvsystem'][pvsys]['strings'] / \
     #    temp_strings/temp_modules_per_string
     parray = dict(
@@ -564,7 +596,7 @@ def pvsystem(pvsys, location):
         temperature_model_parameters=temperature_model_parameters,
         modules_per_string=config['pvsystem'][pvsys]['modules_per_string'],
         strings=config['pvsystem'][pvsys]['strings']
-        #strings_per_inverter=config['pvsystem'][pvsys]['strings']
+        # strings_per_inverter=config['pvsystem'][pvsys]['strings']
     )
     parrays = []
     for i in range(len(config['pvsystem'][pvsys]['azimuth'])):
@@ -585,7 +617,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_configfile: Path = typer.Option(
              "cfg/testcfg.yml", "--config", "-c"),
          t_cccancfile: str = typer.Option(
-             "/data/projects/PA3C3/Input/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--cccanc", "-nc"),
+             "/data/projects/PA3C3/Input/rsds_SDM_NCC-NorESM1-M_rcp85_r1i1p1_DMI-HIRHAM5_all.nc", "--cccanc", "-nc"),
          t_dhmfile: str = typer.Option(
              "/data/projects/PA3C3/Input/dhm_at_lamb_10m_2018.tif", "--dhm", "-dhm"),
          t_horfile: str = typer.Option(
@@ -695,18 +727,16 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     rs.writeGEO(areabuf, path.joinpath(
         Path.home(), 'pa3c3out'), 'area')
 
-
-
     for idx, row in points.iterrows():
         if dbg:
             typer.echo(
                 f"\tProcessing Points")
         if config['files']['hornc']:
             horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
-            #print(points.crs)
-            #print(hornc.spatialref)
+            # print(points.crs)
+            # print(hornc.spatialref)
             res = horres['horizon'].values
-            res = np.subtract(90,res).tolist()
+            res = np.subtract(90, res).tolist()
         else:
             with rasterio.open(config['files']['dhm'], 'r') as ds:
                 crop_dem, crop_tf = rasterio.mask.mask(
@@ -723,30 +753,32 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 with typer.progressbar(angles) as progressangles:
                     for a in progressangles:
                         horangles[a] = horizon(a, crop_dem, psx)
-                #print(horangles)
+                # print(horangles)
                 res = []
                 for a in angles:
                     py, px = ds.index(row.geometry.x, row.geometry.y)
                     res.append(
                         round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
         res = json.dumps(res)
-        #print(res)
+        # print(res)
         points.at[idx, 'horizon'] = [res]
-    #print(points)
+    # print(points)
     # sunrise / sunset at area center
     # readNETCDF
     if dbg:
         typer.echo(
             f"Reading CCCA data")
 
-    dates360, dates = gendates(
+    dates360 = gendates360(
         config['ccca']['startyears'], config['ccca']['timeframe'])
-    #print(dates360)
-    #print(dates)
-    for year, daterange in dates360.items():
-        points, cccadict = cccapoints(nd, points, daterange)
+    dates365 = gendates365(
+        config['ccca']['startyears'], config['ccca']['timeframe'])
 
-    for year, daterange in dates.items():
+    for year, daterange in dates360.items():
+        daterange365 = dates365[year]
+        points, cccadict = cccapoints(nd, points, daterange, daterange365)
+
+    for year, daterange in dates365.items():
         for nxny in cccadict.keys():
             ddata = cccadict[nxny]['rsds']
             geom = cccadict[nxny]['geom']
@@ -755,10 +787,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
-            hdata = ghid2ghih(ddata, daterange, dates360[year], location)
+            hdata = ghid2ghih(ddata, daterange, location)
             hdata['location'] = geom
             # DNI+DHI hourly
             hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+            hdata.to_csv('rsdshourly.csv')
 
     # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
     #    print(hdata)
@@ -798,30 +831,29 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     store.close()
 
-    ### statistics for hdata
-    res = res * 2
+    print(mcsim.results)
+    # statistics for hdata
+    res = res * 10
     res = res.reset_index(name='kWh')
-    print(res.head(144))
+    # print(res.head(144))
     res = res.set_index('index')
-    print(res.head(144))
+    # print(res.head(144))
     res.to_csv('hdata.csv')
     #res = res.rename('kWh')
     daily = res.resample('D').sum()/1000
-    #print(daily.head(365))
+    # print(daily.head(365))
     daily.to_csv('ddata.csv')
     monthly = res.resample('M').sum()/1000
 
     monthly.to_csv('mdata.csv')
-    print(monthly.head(12))
     amonthly = monthly.groupby(monthly.index.month).kWh.mean()
-    
+
     amonthly.to_csv('amdata.csv')
     print(amonthly.head(12))
-    #print(hourly)
-    #print(daily.head(365))
-    
-    ### output for EPIC
+    # print(hourly)
+    # print(daily.head(365))
 
+    # output for EPIC
 
     #hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
     #ddata = pd.DataFrame(data=ddata)

@@ -1,6 +1,6 @@
 ccca:
-  startyears: [2000] #, 2030, 2045]
-  timeframe: 3 # in years
+  startyears: [2005] #, 2030, 2045]
+  timeframe: 10 # in years
   crs: "epsg:4326"
   tz: "UTC"
 
@@ -22,7 +22,7 @@ landuse:
 
 pvmod:
   numangles: 30 # 360/12
-  hmodel: "erbs"
+  hmodel: "disc"
 
 # gis defaults
 gis:
@@ -30,13 +30,13 @@ gis:
 
 pvsystem:
   0:
-    name: "10kWp"
+    name: "1kWp"
     type: "single"
     module: "Aleo_Solar_S18y250"
     inverter: "ABB__PVI_3_0_OUTD_S_US__208V_"
-    modules_per_string: 10 # = 1250Wp; number of modules per row
+    modules_per_string: 4 # = 1000Wp; number of modules per row
     strings: 1 # number of rows
-    multiplier: 4 # 1250 * 2 * x = 10000
+    multiplier: 10 # 1000 * 10 * x = 10000
     distance: 100 # distance in meters between rows
     height: 1 # slant height (without clearance)
     tilt: [20] # tilt of modules [0-90]
