@@ -60,8 +60,8 @@ def calc_ccca_xy(nd, point):
     c = np.maximum(abslon, abslat)
 
     ([yloc], [xloc]) = np.where(c == np.min(c))
-    print(point)
-    print(nd['x'][xloc].values, nd['y'][yloc].values)
+    # print(point)
+    # print(nd['x'][xloc].values, nd['y'][yloc].values)
     return(nd['x'][xloc].values, nd['y'][yloc].values)
 
 
@@ -148,10 +148,12 @@ def rad_d2h_liu(w_s, w):
     sin_w_s = math.sin(rad_w_s_adp)
     ratio = []
     for w_h in w:
-        w_h_adp = 180 - w_h
+        w_h_adp = w_h - 180
         cos_w_h = math.cos(math.radians(w_h_adp))
-        r = (math.pi / 24 * (cos_w_h - cos_w_s)) / \
-            (sin_w_s - (rad_w_s_adp * cos_w_s))
+        # r = (math.pi/24 * (cos_w_h - cos_w_s)) / \
+        #    (sin_w_s - (rad_w_s_adp * cos_w_s))
+        r = ((((math.pi)/24)*(cos_w_h-cos_w_s)) /
+             (sin_w_s-rad_w_s_adp*cos_w_s))
         ratio.append(r)
     return(np.clip(ratio, a_min=0, a_max=None))
 
@@ -184,13 +186,53 @@ def rad_d2h_cpr(w_s, w):
 
     ratio = []
     for w_h in w:
-        w_h_adp = 180 - w_h
+        w_h_adp = w_h - 180
         cos_w_h = math.cos(math.radians(w_h_adp))
-        r = (a + b * cos_w_h) * math.pi / 24 * (cos_w_h -
-                                                cos_w_s) / (sin_w_s - (rad_w_s_adp * cos_w_s))
+        # r = (a + (b * cos_w_h)) * \
+        #    (math.pi / 24 * (cos_w_h - cos_w_s)) / \
+        #    (sin_w_s - ((math.pi * w_s_adp/180) * cos_w_s))
+        r = (math.pi / 24) * (a + b * cos_w_h) * \
+            (cos_w_h - cos_w_s) / \
+            (sin_w_s - rad_w_s_adp * cos_w_s)
         ratio.append(r)
     return(np.clip(ratio, a_min=0, a_max=None))
 
+
+def rad_d2h_garg(w_s, w):
+    """
+    calculates the ratio of daily and hourly radiation values according to:
+    M. Collares-Pereira and A. Rabl, “The average distribution of solar
+    radiation-correlations between diffuse and hemispherical and between
+    daily and hourly insolation values,” Solar Energy, vol. 22, no. 2,
+    pp. 155–164, 1979.
+
+    Parameters
+    ----------
+    w_s : sunset azimuth (~ sunset hour angle, where 0 = north, 180 = south)
+    w : vector of sun azimuth over 24 hours (=24 values) (~ sun hour angle)
+
+    Returns
+    -------
+    r : vector of relation values for each of the 24 hours
+    """
+    w_s_adp = w_s - 180
+    rad_w_s_adp = math.radians(w_s_adp)
+    cos_w_s = math.cos(rad_w_s_adp)
+    sin_w_s = math.sin(rad_w_s_adp)
+    w_s_cp = w_s_adp - 60
+    sin_w_s_cp = math.sin(math.radians(w_s_cp))
+
+    ratio = []
+    for w_h in w:
+        w_h_adp = w_h - 180
+        rad_w_h = math.radians(w_h_adp)
+        cos_w_h = math.cos(rad_w_h)
+        r = (math.pi / 24) * \
+            (cos_w_h - cos_w_s) / \
+            (sin_w_s - rad_w_s_adp * cos_w_s) - \
+            (0.008 * math.sin(3 * (rad_w_h - 0.65)))
+        ratio.append(r)
+    return(np.clip(ratio, a_min=0, a_max=None))
 
 def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
     if 'geojson' in types:
@@ -410,8 +452,8 @@ def cccapoints(nd, points, daterange, daterange365):
         # nxny.append(nxnykey)
         if not nxnykey in cccadict.keys():
             res = get_ccca_values(nd, nx, ny, daterange)
-            #rsds_values = res['rsds'].values
-            #values = values_day360_day365(rsds_values)
+            # rsds_values = res['rsds'].values
+            # values = values_day360_day365(rsds_values)
             values = res.rsds.values
             cccadict[nxnykey] = {}
             cccadict[nxnykey]['rsds'] = values  # fill numpy ndarray
@@ -425,8 +467,8 @@ def cccapoints(nd, points, daterange, daterange365):
 def values_day360_day365(values):
     np.set_printoptions(threshold=np.Inf)
     valchunks = np.array_split(values, 3)
-    #years = np.unique(daterange.year)
-    #indleap = [31, 91, 151, 211, 271, 331]
+    # years = np.unique(daterange.year)
+    # indleap = [31, 91, 151, 211, 271, 331]
     indnoleap = [91, 151, 211, 271, 331]
     for i in range(0, len(valchunks)):
         # if calendar.isleap(years[i]):
@@ -461,8 +503,9 @@ def ghid2ghih(ddata, daterange, location):
     i = 0
     data = pd.DataFrame()
     while i < len(ddata):
-        dval = ddata[i] #*1000/24
-        print(ddata[i], dval)
+        # raw data is in W/m2 -> this is meteorological mean data per hour and day, have to multiply by 24
+        dval = ddata[i] * 24
+        # print(ddata[i], dval)
         date = daterange[i]
         # sunset azimuth
         settime = sunset_time(location, date)
@@ -479,16 +522,16 @@ def ghid2ghih(ddata, daterange, location):
         z_h = np.around(solar_position['zenith'].values, decimals=2)
         z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
         cos_z_h = np.cos(np.deg2rad(z_h))
-        #cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
+        # cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
 
         # daily to hourly values
-        ratio = rad_d2h_liu(w_s, w_h)
+        ratio = rad_d2h_garg(w_s, w_h)
         # ratio = np.roll(ratio, 1)
         hvalues = np.around(dval*ratio, decimals=2)
-        tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, hvalues], axis=1)
+        tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
-                             columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ghi'])
-        print(hdata)
+                             columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
+        # print(hdata)
         data = data.append(hdata)
         i += 1
     return(data)
@@ -548,7 +591,7 @@ def pvmodeltest():
                                      modules_per_string=10, strings=2)
     systemarray = pvlib.pvsystem.PVSystem(arrays=[array_one],  # , array_two],
                                           inverter_parameters={'pdc0': 8000})
-    print(systemarray)
+    # print(systemarray)
     weather = pvlib.iotools.get_pvgis_tmy(location.latitude, location.longitude,
                                           map_variables=True)[0]
     mc = pvlib.modelchain.ModelChain(systemarray, location, aoi_model='no_loss',
@@ -590,8 +633,8 @@ def pvsystem(pvsys, location):
     inverter_parameters = cecinverters[config['pvsystem'][pvsys]['inverter']]
     temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS[
         'sapm']['open_rack_glass_glass']
-    #temp_strings = 2
-    #temp_modules_per_string = 5
+    # temp_strings = 2
+    # temp_modules_per_string = 5
     # mult = config['pvsystem'][pvsys]['modules_per_string'] * \
     #    config['pvsystem'][pvsys]['strings'] / \
     #    temp_strings/temp_modules_per_string
@@ -621,7 +664,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_configfile: Path = typer.Option(
              "cfg/testcfg.yml", "--config", "-c"),
          t_cccancfile: str = typer.Option(
-             "/data/projects/PA3C3/Input/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--cccanc", "-nc"),
+             "/data/projects/PA3C3/Input/rsds_SDM_ICHEC-EC-EARTH_rcp85_r1i1p1_KNMI-RACMO22E.nc", "--cccanc", "-nc"),
          t_dhmfile: str = typer.Option(
              "/data/projects/PA3C3/Input/dhm_at_lamb_10m_2018.tif", "--dhm", "-dhm"),
          t_horfile: str = typer.Option(
@@ -714,7 +757,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             f"Selecting areas")
 
     lupolys, points = areaselection()
-    #points = points[1:5]
+    # points = points[1:5]
 
     # horizon calculation for each point (angle as COS)
     if dbg:
@@ -749,7 +792,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 # read all raster values
                 crop_dem = crop_dem.astype(np.double)[0]
                 psx, psy = ds.res
-                #print(psx, psy)
+                # print(psx, psy)
                 horangles = {}
                 if dbg:
                     typer.echo(
@@ -777,8 +820,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         config['ccca']['startyears'], config['ccca']['timeframe'])
     dates365 = gendates365(
         config['ccca']['startyears'], config['ccca']['timeframe'])
-    ### for other files we do not need dates360
-    
+    # for other files we do not need dates360
+
     dates360 = dates365
 
     for year, daterange in dates360.items():
@@ -794,10 +837,10 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
-            ddf = pd.DataFrame(ddata)
-            ddf.to_csv('dailyraw.csv')
+            df = pd.DataFrame(data=ddata)
+            df.to_csv('rad_dailyRAW.csv')
             hdata = ghid2ghih(ddata, daterange, location)
-            hdata.to_csv('hourlyraw.csv')
+            # hdata.to_csv('hourlyraw.csv')
             hdata['location'] = geom
             # DNI+DHI hourly
             hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
@@ -841,7 +884,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     store.close()
 
-    print(mcsim.results)
+    # print(mcsim.results)
     # statistics for hdata
     res = res * 10
     res = res.reset_index(name='kWh')
@@ -849,15 +892,25 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     res = res.set_index('index')
     # print(res.head(144))
     res.to_csv('hdata.csv')
-    #res = res.rename('kWh')
+    # res = res.rename('kWh')
     daily = res.resample('D').sum()/1000
     # print(daily.head(365))
     daily.to_csv('ddata.csv')
     monthly = res.resample('M').sum()/1000
 
     monthly.to_csv('mdata.csv')
-    amonthly = monthly.groupby(monthly.index.month).kWh.mean()
 
+    print(hdata.head(144))
+
+    ahourly = hdata.groupby((hdata.index.dayofyear - 1) *
+                            24 + hdata.index.hour).ghi.mean()
+    print(ahourly)
+    ahourly.to_csv('ahourly.csv')
+
+    rad_monthly = hdata.groupby(hdata.index.month).ghi.mean()
+    rad_monthly.to_csv('rad_monthly.csv')
+
+    amonthly = monthly.groupby(monthly.index.month).kWh.mean()
     amonthly.to_csv('amdata.csv')
     print(amonthly.head(12))
     # print(hourly)
@@ -865,9 +918,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     # output for EPIC
 
-    #hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
-    #ddata = pd.DataFrame(data=ddata)
-    #ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
+    # hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
+    # ddata = pd.DataFrame(data=ddata)
+    # ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 

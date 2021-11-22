@@ -1,6 +1,6 @@
 ccca:
   startyears: [2000] #, 2030, 2045]
-  timeframe: 5 # in years
+  timeframe: 15 # in years
   crs: "epsg:4326"
   tz: "UTC"
 
