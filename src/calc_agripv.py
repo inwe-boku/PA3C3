@@ -60,6 +60,8 @@ def calc_ccca_xy(nd, point):
     c = np.maximum(abslon, abslat)
 
     ([yloc], [xloc]) = np.where(c == np.min(c))
+    print(point)
+    print(nd['x'][xloc].values, nd['y'][yloc].values)
     return(nd['x'][xloc].values, nd['y'][yloc].values)
 
 
@@ -408,8 +410,9 @@ def cccapoints(nd, points, daterange, daterange365):
         # nxny.append(nxnykey)
         if not nxnykey in cccadict.keys():
             res = get_ccca_values(nd, nx, ny, daterange)
-            rsds_values = res['rsds'].values
-            values = values_day360_day365(rsds_values)
+            #rsds_values = res['rsds'].values
+            #values = values_day360_day365(rsds_values)
+            values = res.rsds.values
             cccadict[nxnykey] = {}
             cccadict[nxnykey]['rsds'] = values  # fill numpy ndarray
             cccadict[nxnykey]['date'] = daterange365
@@ -774,6 +777,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         config['ccca']['startyears'], config['ccca']['timeframe'])
     dates365 = gendates365(
         config['ccca']['startyears'], config['ccca']['timeframe'])
+    ### for other files we do not need dates360
+    
+    dates360 = dates365
 
     for year, daterange in dates360.items():
         daterange365 = dates365[year]
@@ -788,7 +794,10 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
+            ddf = pd.DataFrame(ddata)
+            ddf.to_csv('dailyraw.csv')
             hdata = ghid2ghih(ddata, daterange, location)
+            hdata.to_csv('hourlyraw.csv')
             hdata['location'] = geom
             # DNI+DHI hourly
             hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
