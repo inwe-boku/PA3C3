@@ -458,7 +458,8 @@ def ghid2ghih(ddata, daterange, location):
     i = 0
     data = pd.DataFrame()
     while i < len(ddata):
-        dval = ddata[i]*1000/24
+        dval = ddata[i] #*1000/24
+        print(ddata[i], dval)
         date = daterange[i]
         # sunset azimuth
         settime = sunset_time(location, date)
@@ -476,15 +477,15 @@ def ghid2ghih(ddata, daterange, location):
         z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
         cos_z_h = np.cos(np.deg2rad(z_h))
         #cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
-        
+
         # daily to hourly values
         ratio = rad_d2h_liu(w_s, w_h)
         # ratio = np.roll(ratio, 1)
-        # print(dval, ratio)
         hvalues = np.around(dval*ratio, decimals=2)
         tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, hvalues], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
                              columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ghi'])
+        print(hdata)
         data = data.append(hdata)
         i += 1
     return(data)
@@ -617,7 +618,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_configfile: Path = typer.Option(
              "cfg/testcfg.yml", "--config", "-c"),
          t_cccancfile: str = typer.Option(
-             "/data/projects/PA3C3/Input/rsds_SDM_NCC-NorESM1-M_rcp85_r1i1p1_DMI-HIRHAM5_all.nc", "--cccanc", "-nc"),
+             "/data/projects/PA3C3/Input/rsds_SDM_MOHC-HadGEM2-ES_rcp45_r1i1p1_CLMcom-CCLM4-8-17.nc", "--cccanc", "-nc"),
          t_dhmfile: str = typer.Option(
              "/data/projects/PA3C3/Input/dhm_at_lamb_10m_2018.tif", "--dhm", "-dhm"),
          t_horfile: str = typer.Option(
