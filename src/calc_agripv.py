@@ -322,15 +322,16 @@ def areaselection():
             f"Landuse Raster to Polygons")
 
     mask = None
+    print(croplufile)
     with rasterio.Env():
         with rasterio.open(str(croplufile)) as src:
             rastercrs = src.crs
             image = src.read(1)  # first band
+            print(image)
             results = (
                 {'properties': {'landuse': int(v), 'lujson': json.dumps([
                     int(v)])}, 'geometry': s}
-                for i, (s, v)
-                in enumerate(
+                for i, (s, v) in enumerate(
                     shapes(image, mask=mask, transform=src.transform)))
     geoms = list(results)
     gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
