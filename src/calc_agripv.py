@@ -234,6 +234,7 @@ def rad_d2h_garg(w_s, w):
         ratio.append(r)
     return(np.clip(ratio, a_min=0, a_max=None))
 
+
 def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
     if 'geojson' in types:
         data.to_file(filename=os.path.join(path, 'geojson',
@@ -713,6 +714,10 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if config['files']['area'].is_file():
         area = gpd.read_file(config['files']['area'])
         area = area.to_crs(config['gis']['processcrs'])
+        # dissolve
+        area['tmpdis'] = 1
+        area = area.dissolve(by='tmpdis')
+        #area = area.drop(columns=['tmpdis'])
     else:
         message = typer.style(str(config['files']['area']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
