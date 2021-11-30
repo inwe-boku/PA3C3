@@ -8,7 +8,7 @@ ccca:
 landuse:
   # land use fields available for PV
   free: [
-      154
+      62 #154, 125
     ]
   # m2 needed for one kWp
   # m2kWp: 20

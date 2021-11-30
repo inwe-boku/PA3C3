@@ -356,7 +356,7 @@ def areaselection():
     lupolys.loc[(lupolys['B_landuse'] == True) & (lupolys['B_area'] == True)
                 & (lupolys['B_compact'] == True), 'PV'] = True
     lupolys.reset_index(inplace=True)
-
+        
     typer.echo(
         f"\tCreating random points ...")
     points = rs.randompoints(
@@ -527,8 +527,14 @@ def ghi2dni(data, model='disc'):
             ghi=data['ghi'], solar_zenith=data['z_h'], datetime_or_doy=data.index)
         data = pd.concat([data, dnidata], axis=1)
         data.dni = data.dni.round(decimals=2)
+        #print(data['ghi'])
+        #print(data['dni'])
+        #print(data['cos_z_h'])
+        x = data['ghi'] - data['dni']*data['cos_z_h']
+        print(x)
         data['dhi'] = data.ghi - (data.dni * data.cos_z_h)
         data.kt = data.kt.round(decimals=5)
+        
     elif model == 'erbs':
         dnidata = pvlib.irradiance.erbs(
             ghi=data['ghi'], zenith=data['z_h'], datetime_or_doy=data.index, min_cos_zenith=0.065, max_zenith=85)
@@ -798,7 +804,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     res.append(
                         round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
         res = json.dumps(res)
-        # print(res)
+        print(res)
         points.at[idx, 'horizon'] = [res]
     # print(points)
     # sunrise / sunset at area center
@@ -829,7 +835,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
             df = pd.DataFrame(data=ddata)
-            df.to_csv('rad_dailyRAW.csv')
+            #df.to_csv('rad_dailyRAW.csv')
             hdata = ghid2ghih(ddata, daterange, location)
             # hdata.to_csv('hourlyraw.csv')
             hdata['location'] = geom
@@ -854,7 +860,13 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 idx = (np.abs(angles - hrow['w_h'])).argmin()
                 if phors[idx] < hrow['z_h']:
                     hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
+                    hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
                     hdata.at[hidx, 'dni'] = 0
+                    hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']/2
+                    #print("DNI = 0")
+        print(hdata.head(144))
+        hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+        hdata.to_csv('rsdshourly.csv')
 
     for pvsys in config['pvsystem'].keys():
 
@@ -891,11 +903,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     monthly.to_csv('mdata.csv')
 
-    print(hdata.head(144))
+    #print(hdata.head(144))
 
     ahourly = hdata.groupby((hdata.index.dayofyear - 1) *
                             24 + hdata.index.hour).ghi.mean()
-    print(ahourly)
+    #print(ahourly)
     ahourly.to_csv('ahourly.csv')
 
     rad_monthly = hdata.groupby(hdata.index.month).ghi.mean()
