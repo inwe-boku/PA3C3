@@ -126,12 +126,9 @@ def sunset_azimuth(point, date, altitude=200):
     return(location.get_solarposition(sunset_time(point, date))['azimuth'].values[0])
 
 
-def rad_d2h_liu(w_s, w):
+def rad_d2h(w_s, w, method):
     """
-    Calculates the ratio of daily and hourly radiation values according to:
-    B. Y. H. Liu and R. C. Jordan, “The interrelationship and characteristic
-    distribution of direct, diffuse and total solar radiation,” Solar Energy,
-    vol. 4, no. 3, pp. 1–19, 1960.
+    Calculates the ratio of daily and hourly radiation values.
 
     Parameters
     ----------
@@ -142,96 +139,79 @@ def rad_d2h_liu(w_s, w):
     -------
     r : vector of relation values for each of the 24 hoursu
     """
-    w_s_adp = w_s - 180
-    rad_w_s_adp = math.radians(w_s_adp)
-    cos_w_s = math.cos(rad_w_s_adp)
-    sin_w_s = math.sin(rad_w_s_adp)
-    ratio = []
-    for w_h in w:
-        w_h_adp = w_h - 180
-        cos_w_h = math.cos(math.radians(w_h_adp))
-        # r = (math.pi/24 * (cos_w_h - cos_w_s)) / \
-        #    (sin_w_s - (rad_w_s_adp * cos_w_s))
-        r = ((((math.pi)/24)*(cos_w_h-cos_w_s)) /
-             (sin_w_s-rad_w_s_adp*cos_w_s))
-        ratio.append(r)
-    return(np.clip(ratio, a_min=0, a_max=None))
+    if method == 'liu':
+        """
+        Using the method presented in:
+        B. Y. H. Liu and R. C. Jordan, “The interrelationship and characteristic
+        distribution of direct, diffuse and total solar radiation,” Solar Energy,
+        vol. 4, no. 3, pp. 1–19, 1960.
+        """
+        w_s_adp = w_s - 180
+        rad_w_s_adp = math.radians(w_s_adp)
+        cos_w_s = math.cos(rad_w_s_adp)
+        sin_w_s = math.sin(rad_w_s_adp)
+        ratio = []
+        for w_h in w:
+            w_h_adp = w_h - 180
+            cos_w_h = math.cos(math.radians(w_h_adp))
+            # r = (math.pi/24 * (cos_w_h - cos_w_s)) / \
+            #    (sin_w_s - (rad_w_s_adp * cos_w_s))
+            r = ((((math.pi)/24)*(cos_w_h-cos_w_s)) /
+                 (sin_w_s-rad_w_s_adp*cos_w_s))
+            ratio.append(r)
+    elif method == 'cpr':
+        """
+        Using the method presented in:
+        M. Collares-Pereira and A. Rabl, “The average distribution of solar
+        radiation-correlations between diffuse and hemispherical and between
+        daily and hourly insolation values,” Solar Energy, vol. 22, no. 2,
+        pp. 155–164, 1979.
+        """
+        w_s_adp = w_s - 180
+        rad_w_s_adp = math.radians(w_s_adp)
+        cos_w_s = math.cos(rad_w_s_adp)
+        sin_w_s = math.sin(rad_w_s_adp)
+        w_s_cp = w_s_adp - 60
+        sin_w_s_cp = math.sin(math.radians(w_s_cp))
+        a = 0.409 + (0.5016 * sin_w_s_cp)
+        b = 0.6609 - (0.4767 * sin_w_s_cp)
 
+        ratio = []
+        for w_h in w:
+            w_h_adp = w_h - 180
+            cos_w_h = math.cos(math.radians(w_h_adp))
+            # r = (a + (b * cos_w_h)) * \
+            #    (math.pi / 24 * (cos_w_h - cos_w_s)) / \
+            #    (sin_w_s - ((math.pi * w_s_adp/180) * cos_w_s))
+            r = (math.pi / 24) * (a + b * cos_w_h) * \
+                (cos_w_h - cos_w_s) / \
+                (sin_w_s - rad_w_s_adp * cos_w_s)
+            ratio.append(r)
+    elif method == 'garg':
+        """
+        Using the method presented in:
+        H.P.Garg and S.N.Garg, “Improved correlation of daily and hourly diffuse
+        radiation with global radiation for Indian stations,”
+        Solar Energy, vol. 22, no. 2,
+        pp. 155–164, 1979.
+        """
+        w_s_adp = w_s - 180
+        rad_w_s_adp = math.radians(w_s_adp)
+        cos_w_s = math.cos(rad_w_s_adp)
+        sin_w_s = math.sin(rad_w_s_adp)
+        w_s_cp = w_s_adp - 60
+        sin_w_s_cp = math.sin(math.radians(w_s_cp))
 
-def rad_d2h_cpr(w_s, w):
-    """
-    calculates the ratio of daily and hourly radiation values according to:
-    M. Collares-Pereira and A. Rabl, “The average distribution of solar
-    radiation-correlations between diffuse and hemispherical and between
-    daily and hourly insolation values,” Solar Energy, vol. 22, no. 2,
-    pp. 155–164, 1979.
-
-    Parameters
-    ----------
-    w_s : sunset azimuth (~ sunset hour angle, where 0 = north, 180 = south)
-    w : vector of sun azimuth over 24 hours (=24 values) (~ sun hour angle)
-
-    Returns
-    -------
-    r : vector of relation values for each of the 24 hours
-    """
-    w_s_adp = w_s - 180
-    rad_w_s_adp = math.radians(w_s_adp)
-    cos_w_s = math.cos(rad_w_s_adp)
-    sin_w_s = math.sin(rad_w_s_adp)
-    w_s_cp = w_s_adp - 60
-    sin_w_s_cp = math.sin(math.radians(w_s_cp))
-    a = 0.409 + (0.5016 * sin_w_s_cp)
-    b = 0.6609 - (0.4767 * sin_w_s_cp)
-
-    ratio = []
-    for w_h in w:
-        w_h_adp = w_h - 180
-        cos_w_h = math.cos(math.radians(w_h_adp))
-        # r = (a + (b * cos_w_h)) * \
-        #    (math.pi / 24 * (cos_w_h - cos_w_s)) / \
-        #    (sin_w_s - ((math.pi * w_s_adp/180) * cos_w_s))
-        r = (math.pi / 24) * (a + b * cos_w_h) * \
-            (cos_w_h - cos_w_s) / \
-            (sin_w_s - rad_w_s_adp * cos_w_s)
-        ratio.append(r)
-    return(np.clip(ratio, a_min=0, a_max=None))
-
-
-def rad_d2h_garg(w_s, w):
-    """
-    calculates the ratio of daily and hourly radiation values according to:
-    M. Collares-Pereira and A. Rabl, “The average distribution of solar
-    radiation-correlations between diffuse and hemispherical and between
-    daily and hourly insolation values,” Solar Energy, vol. 22, no. 2,
-    pp. 155–164, 1979.
-
-    Parameters
-    ----------
-    w_s : sunset azimuth (~ sunset hour angle, where 0 = north, 180 = south)
-    w : vector of sun azimuth over 24 hours (=24 values) (~ sun hour angle)
-
-    Returns
-    -------
-    r : vector of relation values for each of the 24 hours
-    """
-    w_s_adp = w_s - 180
-    rad_w_s_adp = math.radians(w_s_adp)
-    cos_w_s = math.cos(rad_w_s_adp)
-    sin_w_s = math.sin(rad_w_s_adp)
-    w_s_cp = w_s_adp - 60
-    sin_w_s_cp = math.sin(math.radians(w_s_cp))
-
-    ratio = []
-    for w_h in w:
-        w_h_adp = w_h - 180
-        rad_w_h = math.radians(w_h_adp)
-        cos_w_h = math.cos(rad_w_h)
-        r = (math.pi / 24) * \
-            (cos_w_h - cos_w_s) / \
-            (sin_w_s - rad_w_s_adp * cos_w_s) - \
-            (0.008 * math.sin(3 * (rad_w_h - 0.65)))
-        ratio.append(r)
+        ratio = []
+        for w_h in w:
+            w_h_adp = w_h - 180
+            rad_w_h = math.radians(w_h_adp)
+            cos_w_h = math.cos(rad_w_h)
+            r = (math.pi / 24) * \
+                (cos_w_h - cos_w_s) / \
+                (sin_w_s - rad_w_s_adp * cos_w_s) - \
+                (0.008 * math.sin(3 * (rad_w_h - 0.65)))
+            ratio.append(r)
     return(np.clip(ratio, a_min=0, a_max=None))
 
 
@@ -322,12 +302,12 @@ def areaselection():
             f"Landuse Raster to Polygons")
 
     mask = None
-    print(croplufile)
+    #print(croplufile)
     with rasterio.Env():
         with rasterio.open(str(croplufile)) as src:
             rastercrs = src.crs
             image = src.read(1)  # first band
-            print(image)
+            #print(image)
             results = (
                 {'properties': {'landuse': int(v), 'lujson': json.dumps([
                     int(v)])}, 'geometry': s}
@@ -527,7 +507,9 @@ def ghid2ghih(ddata, daterange, location):
         # cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
 
         # daily to hourly values
-        ratio = rad_d2h_garg(w_s, w_h)
+        ratio = rad_d2h(w_s, w_h, config['ccca']['downscale'])
+        # normalize
+        ratio = ratio*1/(sum(ratio))
         # ratio = np.roll(ratio, 1)
         hvalues = np.around(dval*ratio, decimals=2)
         tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
@@ -700,6 +682,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                                               bg=typer.colors.RED, bold=True) + " is no file"
         typer.echo(message)
         raise typer.Exit()
+    
+    if not config['ccca']['downscale']:
+        config['ccca']['downscale'] = 'cpr'
 
     config['files'] = {}
     config['files']['area'] = Path(os.path.join(path, areaname, 'area.shp'))
