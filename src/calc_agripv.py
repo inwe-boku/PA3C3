@@ -15,8 +15,8 @@ import cftime
 from shapely.geometry import Point, Polygon, box
 import matplotlib.pyplot as plot
 import pvlib
-from topocalc.horizon import horizon
-from topocalc.gradient import gradient_d8
+#from topocalc.horizon import horizon
+#from topocalc.gradient import gradient_d8
 from topocalc.viewf import viewf
 from osgeo import gdal
 import calendar
@@ -302,12 +302,12 @@ def areaselection():
             f"Landuse Raster to Polygons")
 
     mask = None
-    #print(croplufile)
+    # print(croplufile)
     with rasterio.Env():
         with rasterio.open(str(croplufile)) as src:
             rastercrs = src.crs
             image = src.read(1)  # first band
-            #print(image)
+            # print(image)
             results = (
                 {'properties': {'landuse': int(v), 'lujson': json.dumps([
                     int(v)])}, 'geometry': s}
@@ -356,7 +356,7 @@ def areaselection():
     lupolys.loc[(lupolys['B_landuse'] == True) & (lupolys['B_area'] == True)
                 & (lupolys['B_compact'] == True), 'PV'] = True
     lupolys.reset_index(inplace=True)
-        
+
     typer.echo(
         f"\tCreating random points ...")
     points = rs.randompoints(
@@ -442,6 +442,7 @@ def cccapoints(nd, points, daterange, daterange365):
             cccadict[nxnykey]['date'] = daterange365
             cccadict[nxnykey]['geom'] = row.geometry
             cccadict[nxnykey]['altitude'] = row.altitude
+            cccadict[nxnykey]['horizon'] = row.horizon
 
     return(points, cccadict)
 
@@ -527,14 +528,14 @@ def ghi2dni(data, model='disc'):
             ghi=data['ghi'], solar_zenith=data['z_h'], datetime_or_doy=data.index)
         data = pd.concat([data, dnidata], axis=1)
         data.dni = data.dni.round(decimals=2)
-        #print(data['ghi'])
-        #print(data['dni'])
-        #print(data['cos_z_h'])
+        # print(data['ghi'])
+        # print(data['dni'])
+        # print(data['cos_z_h'])
         x = data['ghi'] - data['dni']*data['cos_z_h']
         print(x)
         data['dhi'] = data.ghi - (data.dni * data.cos_z_h)
         data.kt = data.kt.round(decimals=5)
-        
+
     elif model == 'erbs':
         dnidata = pvlib.irradiance.erbs(
             ghi=data['ghi'], zenith=data['z_h'], datetime_or_doy=data.index, min_cos_zenith=0.065, max_zenith=85)
@@ -558,6 +559,15 @@ def relative_diffuse_ratio(distance, height, tilt):
         typer.echo(
             f"Masking angle: {psi}, Shading loss: {shading_loss}, Transposition ratio: {transposition_ratio}, total: {total_ratio}")
     return(total_ratio, shading_loss, transposition_ratio)
+
+
+def skyviewfactor(hangles):
+    # calculates the sky view factor from give horizon zenith angles (as degrees and numpy vector)
+    # angles: 0 = top zenith; 90 = perfect horizontal horizon
+    print(hangles)
+    sin2h = np.sin(np.radians(hangles))**2
+    svf = np.sum(sin2h)/len(hangles)
+    return(svf)
 
 
 def PVmoduleinfo():
@@ -688,7 +698,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                                               bg=typer.colors.RED, bold=True) + " is no file"
         typer.echo(message)
         raise typer.Exit()
-    
+
     if not config['ccca']['downscale']:
         config['ccca']['downscale'] = 'cpr'
 
@@ -804,7 +814,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     res.append(
                         round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
         res = json.dumps(res)
-        print(res)
+        # print(res)
         points.at[idx, 'horizon'] = [res]
     # print(points)
     # sunrise / sunset at area center
@@ -835,12 +845,15 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 'UTC', altitude, nxny)
             # GHI daily to GHI hourly
             df = pd.DataFrame(data=ddata)
-            #df.to_csv('rad_dailyRAW.csv')
+            # df.to_csv('rad_dailyRAW.csv')
             hdata = ghid2ghih(ddata, daterange, location)
             # hdata.to_csv('hourlyraw.csv')
             hdata['location'] = geom
+            #print(hdata.head(144))
+            svf = skyviewfactor(np.asarray(cccadict[nxny]['horizon']))
+            print(svf)
             # DNI+DHI hourly
-            hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+            #hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
             hdata.to_csv('rsdshourly.csv')
 
     # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
@@ -864,7 +877,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     hdata.at[hidx, 'dni'] = 0
                     hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']/2
                     #print("DNI = 0")
-        print(hdata.head(144))
+        #print(hdata.head(144))
         hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
         hdata.to_csv('rsdshourly.csv')
 
@@ -903,11 +916,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     monthly.to_csv('mdata.csv')
 
-    #print(hdata.head(144))
+    # print(hdata.head(144))
 
     ahourly = hdata.groupby((hdata.index.dayofyear - 1) *
                             24 + hdata.index.hour).ghi.mean()
-    #print(ahourly)
+    # print(ahourly)
     ahourly.to_csv('ahourly.csv')
 
     rad_monthly = hdata.groupby(hdata.index.month).ghi.mean()
