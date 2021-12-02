@@ -528,11 +528,6 @@ def ghi2dni(data, model='disc'):
             ghi=data['ghi'], solar_zenith=data['z_h'], datetime_or_doy=data.index)
         data = pd.concat([data, dnidata], axis=1)
         data.dni = data.dni.round(decimals=2)
-        # print(data['ghi'])
-        # print(data['dni'])
-        # print(data['cos_z_h'])
-        x = data['ghi'] - data['dni']*data['cos_z_h']
-        print(x)
         data['dhi'] = data.ghi - (data.dni * data.cos_z_h)
         data.kt = data.kt.round(decimals=5)
 
@@ -564,7 +559,7 @@ def relative_diffuse_ratio(distance, height, tilt):
 def skyviewfactor(hangles):
     # calculates the sky view factor from give horizon zenith angles (as degrees and numpy vector)
     # angles: 0 = top zenith; 90 = perfect horizontal horizon
-    print(hangles)
+    # print(hangles)
     sin2h = np.sin(np.radians(hangles))**2
     svf = np.sum(sin2h)/len(hangles)
     return(svf)
@@ -657,6 +652,79 @@ def pvsystem(pvsys, location):
     mc = pvlib.modelchain.ModelChain(system, location, aoi_model='physical',
                                      spectral_model='no_loss')
     return(mc)
+
+
+def gethorizon(points):
+    # gets horizon for landuse points
+    if config['files']['hornc']:
+        hornc = xarray.open_dataset(config['files']['hornc'])
+    for idx, row in points.iterrows():
+        if dbg:
+            typer.echo(
+                f"\tProcessing Points")
+        if config['files']['hornc']:
+            horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
+            res = horres['horizon'].values
+            res = np.subtract(90, res).tolist()
+        else:
+            with rasterio.open(config['files']['dhm'], 'r') as ds:
+                crop_dem, crop_tf = rasterio.mask.mask(
+                    ds, areabuf.geometry, crop=True)
+
+                # read all raster values
+                crop_dem = crop_dem.astype(np.double)[0]
+                psx, psy = ds.res
+                horangles = {}
+                if dbg:
+                    typer.echo(
+                        f"\tProcessing DEM")
+                with typer.progressbar(angles) as progressangles:
+                    for a in progressangles:
+                        horangles[a] = horizon(a, crop_dem, psx)
+                # print(horangles)
+                res = []
+                for a in angles:
+                    py, px = ds.index(row.geometry.x, row.geometry.y)
+                    res.append(
+                        round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
+        res = json.dumps(res)
+        # print(res)
+        points.at[idx, 'horizon'] = [res]
+    return(points)
+
+
+def getcccadata(nd, points):
+    dates360 = gendates360(
+        config['ccca']['startyears'], config['ccca']['timeframe'])
+    dates365 = gendates365(
+        config['ccca']['startyears'], config['ccca']['timeframe'])
+    # for other files we do not need dates360
+
+    dates360 = dates365
+
+    for year, daterange in dates360.items():
+        daterange365 = dates365[year]
+        points, cccadict = cccapoints(nd, points, daterange, daterange365)
+
+    for year, daterange in dates365.items():
+        for nxny in cccadict.keys():
+            ddata = cccadict[nxny]['rsds']
+            geom = cccadict[nxny]['geom']
+            altitude = int(json.loads(cccadict[nxny]['altitude'])[0])
+            location = pvlib.location.Location(
+                geom.y, geom.x,
+                'UTC', altitude, nxny)
+            # GHI daily to GHI hourly
+            df = pd.DataFrame(data=ddata)
+            # df.to_csv('rad_dailyRAW.csv')
+            hdata = ghid2ghih(ddata, daterange, location)
+            # hdata.to_csv('hourlyraw.csv')
+            hdata['location'] = geom
+            # print(hdata.head(144))
+            # DNI+DHI hourly
+            hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+            hdata.to_csv('rsdshourly.csv')
+    return(hdata)
 
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -752,7 +820,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     if (config['files']['hornc'] and config['files']['hornc'].is_file()):
-        hornc = xarray.open_dataset(config['files']['hornc'])
+        print("x")
     elif config['files']['hornc']:
         message = typer.style(str(config['files']['hornc']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
@@ -781,41 +849,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     rs.writeGEO(areabuf, path.joinpath(
         Path.home(), 'pa3c3out'), 'area')
 
-    for idx, row in points.iterrows():
-        if dbg:
-            typer.echo(
-                f"\tProcessing Points")
-        if config['files']['hornc']:
-            horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
-            # print(points.crs)
-            # print(hornc.spatialref)
-            res = horres['horizon'].values
-            res = np.subtract(90, res).tolist()
-        else:
-            with rasterio.open(config['files']['dhm'], 'r') as ds:
-                crop_dem, crop_tf = rasterio.mask.mask(
-                    ds, areabuf.geometry, crop=True)
-                # print(type(crop_dem))
-                # read all raster values
-                crop_dem = crop_dem.astype(np.double)[0]
-                psx, psy = ds.res
-                # print(psx, psy)
-                horangles = {}
-                if dbg:
-                    typer.echo(
-                        f"\tProcessing DEM")
-                with typer.progressbar(angles) as progressangles:
-                    for a in progressangles:
-                        horangles[a] = horizon(a, crop_dem, psx)
-                # print(horangles)
-                res = []
-                for a in angles:
-                    py, px = ds.index(row.geometry.x, row.geometry.y)
-                    res.append(
-                        round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
-        res = json.dumps(res)
-        # print(res)
-        points.at[idx, 'horizon'] = [res]
+    points = gethorizon(points)
     # print(points)
     # sunrise / sunset at area center
     # readNETCDF
@@ -823,38 +857,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(
             f"Reading CCCA data")
 
-    dates360 = gendates360(
-        config['ccca']['startyears'], config['ccca']['timeframe'])
-    dates365 = gendates365(
-        config['ccca']['startyears'], config['ccca']['timeframe'])
-    # for other files we do not need dates360
-
-    dates360 = dates365
-
-    for year, daterange in dates360.items():
-        daterange365 = dates365[year]
-        points, cccadict = cccapoints(nd, points, daterange, daterange365)
-
-    for year, daterange in dates365.items():
-        for nxny in cccadict.keys():
-            ddata = cccadict[nxny]['rsds']
-            geom = cccadict[nxny]['geom']
-            altitude = int(json.loads(cccadict[nxny]['altitude'])[0])
-            location = pvlib.location.Location(
-                geom.y, geom.x,
-                'UTC', altitude, nxny)
-            # GHI daily to GHI hourly
-            df = pd.DataFrame(data=ddata)
-            # df.to_csv('rad_dailyRAW.csv')
-            hdata = ghid2ghih(ddata, daterange, location)
-            # hdata.to_csv('hourlyraw.csv')
-            hdata['location'] = geom
-            #print(hdata.head(144))
-            svf = skyviewfactor(np.asarray(cccadict[nxny]['horizon']))
-            print(svf)
-            # DNI+DHI hourly
-            #hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
-            hdata.to_csv('rsdshourly.csv')
+    hdata = getcccadata(nd, points)
+    # print(hdata.head(48))
 
     # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
     #    print(hdata)
@@ -867,18 +871,21 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                                       'hourly.hdf'))
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
+            phors = json.loads(prow['horizon'])
+            # set the direct normal radiation to zero if sun is behind/below obstacle
             if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
-                phors = json.loads(prow['horizon'])
                 # find the angle closest to the hourly azimuth of the sun (w_h)
                 idx = (np.abs(angles - hrow['w_h'])).argmin()
                 if phors[idx] < hrow['z_h']:
                     hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
-                    hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
                     hdata.at[hidx, 'dni'] = 0
-                    hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']/2
-                    #print("DNI = 0")
-        #print(hdata.head(144))
-        hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+
+            # reduction of the diffuse horizontal irradiation by the sky view factor
+            hangles = np.asarray(phors, dtype=float)
+            svf = skyviewfactor(hangles)
+            #print(svf)
+            hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
+            hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']*svf
         hdata.to_csv('rsdshourly.csv')
 
     for pvsys in config['pvsystem'].keys():
