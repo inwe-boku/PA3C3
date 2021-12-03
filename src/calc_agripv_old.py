@@ -564,7 +564,7 @@ def relative_diffuse_ratio(distance, height, tilt):
 def skyviewfactor(hangles):
     # calculates the sky view factor from give horizon zenith angles (as degrees and numpy vector)
     # angles: 0 = top zenith; 90 = perfect horizontal horizon
-    print(hangles)
+    # print(hangles)
     sin2h = np.sin(np.radians(hangles))**2
     svf = np.sum(sin2h)/len(hangles)
     return(svf)
@@ -850,10 +850,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             # hdata.to_csv('hourlyraw.csv')
             hdata['location'] = geom
             #print(hdata.head(144))
-            svf = skyviewfactor(np.asarray(cccadict[nxny]['horizon']))
-            print(svf)
             # DNI+DHI hourly
-            #hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+            hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
             hdata.to_csv('rsdshourly.csv')
 
     # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
@@ -867,18 +865,20 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                                       'hourly.hdf'))
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
+            phors = json.loads(prow['horizon'])
+            # set the direct normal radiation to zero if sun is behind/below obstacle
             if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
-                phors = json.loads(prow['horizon'])
                 # find the angle closest to the hourly azimuth of the sun (w_h)
                 idx = (np.abs(angles - hrow['w_h'])).argmin()
                 if phors[idx] < hrow['z_h']:
                     hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
-                    hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
                     hdata.at[hidx, 'dni'] = 0
-                    hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']/2
-                    #print("DNI = 0")
         #print(hdata.head(144))
-        hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+        hangles = np.asarray(phors, dtype=float)
+        svf = skyviewfactor(hangles)
+        #print(svf)
+        hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
+        hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']*svf   
         hdata.to_csv('rsdshourly.csv')
 
     for pvsys in config['pvsystem'].keys():
