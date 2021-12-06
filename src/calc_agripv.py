@@ -438,11 +438,11 @@ def cccapoints(nd, points, daterange, daterange365):
             # values = values_day360_day365(rsds_values)
             values = res.rsds.values
             cccadict[nxnykey] = {}
-            cccadict[nxnykey]['rsds'] = values  # fill numpy ndarray
-            cccadict[nxnykey]['date'] = daterange365
-            cccadict[nxnykey]['geom'] = row.geometry
-            cccadict[nxnykey]['altitude'] = row.altitude
-            cccadict[nxnykey]['horizon'] = row.horizon
+            cccadict[nxnykey]['drsds'] = values  # fill numpy ndarray
+            cccadict[nxnykey]['ddate'] = daterange365
+            #cccadict[nxnykey]['geom'] = row.geometry
+            #cccadict[nxnykey]['altitude'] = row.altitude
+            #cccadict[nxnykey]['horizon'] = row.horizon
 
     return(points, cccadict)
 
@@ -705,6 +705,9 @@ def getcccadata(nd, points):
     for year, daterange in dates360.items():
         daterange365 = dates365[year]
         points, cccadict = cccapoints(nd, points, daterange, daterange365)
+    print(points)
+    print(cccadict)
+    exit(0)
 
     for year, daterange in dates365.items():
         for nxny in cccadict.keys():
@@ -720,12 +723,48 @@ def getcccadata(nd, points):
             hdata = ghid2ghih(ddata, daterange, location)
             # hdata.to_csv('hourlyraw.csv')
             hdata['location'] = geom
-            # print(hdata.head(144))
             # DNI+DHI hourly
             hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
-            hdata.to_csv('rsdshourly.csv')
+            #print(hdata.head(144))
+    return(hdata, points)
+
+
+def dhidni_horizonadaption(hdata, prow):
+    phors = json.loads(prow['horizon'])
+    numangles = np.arange(-180, 180, config['pvmod']['numangles'])
+    for hidx, hrow in hdata.iterrows():
+        # set the direct normal radiation to zero if sun is behind/below obstacle
+        if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
+            # find the angle closest to the hourly azimuth of the sun (w_h)
+            #print("below sun")
+            idx = (np.abs(numangles - hrow['w_h'])).argmin()
+            if phors[idx] < hrow['z_h']:
+                hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
+                hdata.at[hidx, 'dni'] = 0
+    #print(hdata.head(144))
+    hangles = np.asarray(phors, dtype=float)
+    svf = skyviewfactor(hangles)
+    #print(svf)
+    hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
     return(hdata)
 
+
+def simpvsystems(hdata):
+    result = {}
+    for pvsys in config['pvsystem'].keys():
+
+        print(pvsys)
+        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
+                                                         config['pvsystem'][pvsys]['height'],
+                                                         config['pvsystem'][pvsys]['tilt'])
+        mcsys = pvsystem(pvsys, pvlib.location.Location(
+            prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
+        mcsim = mcsys.run_model(hdata)
+        # with pd.option_context('display.max_rows', None):
+        res = mcsim.results.ac
+        res[res < 0] = 0
+        result[pvsys] = res
+    return(result)
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_areaname: str = typer.Option("BruckSmall", "--area", "-a"),
@@ -838,7 +877,6 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
             f"Calculation of angles for each point")
-    angles = np.arange(-180, 180, config['pvmod']['numangles'])
     # ds = gdal.Open(config['files']['dhm'])
     # dem = np.array(ds.GetRasterBand(1).ReadAsArray()).astype(np.double)
 
@@ -848,16 +886,16 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         by='cat').geometry.convex_hull.buffer(50000)
     rs.writeGEO(areabuf, path.joinpath(
         Path.home(), 'pa3c3out'), 'area')
-
+    
     points = gethorizon(points)
-    # print(points)
+    #print(points)
     # sunrise / sunset at area center
     # readNETCDF
     if dbg:
         typer.echo(
             f"Reading CCCA data")
 
-    hdata = getcccadata(nd, points)
+    hdata, points = getcccadata(nd, points)
     # print(hdata.head(48))
 
     # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
@@ -869,46 +907,23 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     store = pd.HDFStore(path.joinpath(Path.home(),
                                       'pa3c3out',
                                       'hourly.hdf'))
+    
+    # iterate over all points in the area
     for pidx, prow in points.iterrows():
-        for hidx, hrow in hdata.iterrows():
-            phors = json.loads(prow['horizon'])
-            # set the direct normal radiation to zero if sun is behind/below obstacle
-            if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
-                # find the angle closest to the hourly azimuth of the sun (w_h)
-                idx = (np.abs(angles - hrow['w_h'])).argmin()
-                if phors[idx] < hrow['z_h']:
-                    hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
-                    hdata.at[hidx, 'dni'] = 0
-
-            # reduction of the diffuse horizontal irradiation by the sky view factor
-            hangles = np.asarray(phors, dtype=float)
-            svf = skyviewfactor(hangles)
-            #print(svf)
-            hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
-            hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']*svf
-        hdata.to_csv('rsdshourly.csv')
-
-    for pvsys in config['pvsystem'].keys():
-
-        print(pvsys)
-        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
-                                                         config['pvsystem'][pvsys]['height'],
-                                                         config['pvsystem'][pvsys]['tilt'])
-        mcsys = pvsystem(pvsys, pvlib.location.Location(
-            prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
-        mcsim = mcsys.run_model(hdata)
-        # with pd.option_context('display.max_rows', None):
-        res = mcsim.results.ac
-        res[res < 0] = 0
-        store[str(prow['geometry'].y) + "-" +
-              str(prow['geometry'].x)] = res
-        res.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
-                                              str(prow['geometry'].x) + '.csv'))
+        hdata = dhidni_horizonadaption(hdata, prow)
+        result = simpvsystems(hdata, prow)
+    
+        #store[str(prow['geometry'].y) + "-" +
+        #      str(prow['geometry'].x)] = res
+        #res.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
+        #                                      str(prow['geometry'].x) + '.csv'))
 
     store.close()
 
     # print(mcsim.results)
     # statistics for hdata
+    print(result)
+    exit(0)
     res = res * 10
     res = res.reset_index(name='kWh')
     # print(res.head(144))

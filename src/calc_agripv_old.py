@@ -849,10 +849,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             hdata = ghid2ghih(ddata, daterange, location)
             # hdata.to_csv('hourlyraw.csv')
             hdata['location'] = geom
-            #print(hdata.head(144))
+            
             # DNI+DHI hourly
             hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
-            hdata.to_csv('rsdshourly.csv')
+            #hdata.to_csv('rsdshourly.csv')
+            cccadict[nxny]['hdata'] = hdata
 
     # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
     #    print(hdata)
@@ -866,6 +867,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     for pidx, prow in points.iterrows():
         for hidx, hrow in hdata.iterrows():
             phors = json.loads(prow['horizon'])
+            print(phors)
             # set the direct normal radiation to zero if sun is behind/below obstacle
             if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
                 # find the angle closest to the hourly azimuth of the sun (w_h)
@@ -878,7 +880,9 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         svf = skyviewfactor(hangles)
         #print(svf)
         hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
-        hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']*svf   
+        hdata.at[hidx, 'dhi'] = hdata.at[hidx, 'dhi']*svf
+        print(hdata.head(144))
+        exit(0)
         hdata.to_csv('rsdshourly.csv')
 
     for pvsys in config['pvsystem'].keys():
