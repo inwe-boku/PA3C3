@@ -929,27 +929,27 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     # print(res.head(144))
     res = res.set_index('index')
     # print(res.head(144))
-    res.to_csv('hdata.csv')
+    #res.to_csv('hdata.csv')
     # res = res.rename('kWh')
     daily = res.resample('D').sum()/1000
     # print(daily.head(365))
-    daily.to_csv('ddata.csv')
+    #daily.to_csv('ddata.csv')
     monthly = res.resample('M').sum()/1000
 
-    monthly.to_csv('mdata.csv')
+    #monthly.to_csv('mdata.csv')
 
     # print(hdata.head(144))
 
     ahourly = hdata.groupby((hdata.index.dayofyear - 1) *
                             24 + hdata.index.hour).ghi.mean()
     # print(ahourly)
-    ahourly.to_csv('ahourly.csv')
+    #ahourly.to_csv('ahourly.csv')
 
     rad_monthly = hdata.groupby(hdata.index.month).ghi.mean()
-    rad_monthly.to_csv('rad_monthly.csv')
+    #rad_monthly.to_csv('rad_monthly.csv')
 
     amonthly = monthly.groupby(monthly.index.month).kWh.mean()
-    amonthly.to_csv('amdata.csv')
+    #amonthly.to_csv('amdata.csv')
     print(amonthly.head(12))
     # print(hourly)
     # print(daily.head(365))
