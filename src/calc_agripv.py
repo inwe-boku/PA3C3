@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import yaml
 import os
-import xarray
+import xarray as xr
 import numpy as np
 import datetime
 import suntimes
@@ -408,7 +408,7 @@ def gendates360(startyears, ylength):
     for y in startyears:
         startdt = cftime.Datetime360Day(y, 1, 1, 12, 0, 0, 0)
         enddt = cftime.Datetime360Day(y+ylength-1, 12, 30, 12, 0, 0, 0)
-        dates[y] = xarray.cftime_range(
+        dates[y] = xr.cftime_range(
             start=startdt, end=enddt, freq='D', calendar='360_day')
     return(dates)
 
@@ -428,6 +428,8 @@ def cccapoints(nd, points, daterange, daterange365):
     for idx, row in points.iterrows():
         # logging.info('sampling %s for point %d of %d',
         #             fieldname, int(format(idx + 1)), int(len(points)))
+
+        # get x and y position in the netcdf from lat lon point
         nx, ny = calc_ccca_xy(nd, row)
         nxnykey = str(nx)+'-'+str(ny)
         points.loc[idx, 'nxny'] = nxnykey
@@ -436,12 +438,14 @@ def cccapoints(nd, points, daterange, daterange365):
             res = get_ccca_values(nd, nx, ny, daterange)
             # rsds_values = res['rsds'].values
             # values = values_day360_day365(rsds_values)
-            values = res.rsds.values
+            #values = res.rsds.values
+            df = pd.DataFrame(index=daterange365, data=res.rsds.values)
+
+            # fill info in dictionary, geom and altitude are used to aproximate for daily to hourly downscaling
             cccadict[nxnykey] = {}
-            cccadict[nxnykey]['drsds'] = values  # fill numpy ndarray
-            cccadict[nxnykey]['ddate'] = daterange365
-            #cccadict[nxnykey]['geom'] = row.geometry
-            #cccadict[nxnykey]['altitude'] = row.altitude
+            cccadict[nxnykey]['drsds'] = df
+            cccadict[nxnykey]['geometry'] = row.geometry
+            cccadict[nxnykey]['altitude'] = int(json.loads(row.altitude)[0])
             #cccadict[nxnykey]['horizon'] = row.horizon
 
     return(points, cccadict)
@@ -482,14 +486,14 @@ def nan_helper(y):
     return(np.isnan(y), lambda z: z.nonzero()[0])
 
 
-def ghid2ghih(ddata, daterange, location):
+def ghid2ghih(ddata, location):
     i = 0
     data = pd.DataFrame()
-    while i < len(ddata):
+    for idx, row in ddata.iterrows():
         # raw data is in W/m2 -> this is meteorological mean data per hour and day, have to multiply by 24
-        dval = ddata[i] * 24
+        dval = row[0] * 24
         # print(ddata[i], dval)
-        date = daterange[i]
+        date = idx
         # sunset azimuth
         settime = sunset_time(location, date)
         solar_position = location.get_solarposition(settime)
@@ -657,7 +661,7 @@ def pvsystem(pvsys, location):
 def gethorizon(points):
     # gets horizon for landuse points
     if config['files']['hornc']:
-        hornc = xarray.open_dataset(config['files']['hornc'])
+        hornc = xr.open_dataset(config['files']['hornc'])
     for idx, row in points.iterrows():
         if dbg:
             typer.echo(
@@ -705,28 +709,28 @@ def getcccadata(nd, points):
     for year, daterange in dates360.items():
         daterange365 = dates365[year]
         points, cccadict = cccapoints(nd, points, daterange, daterange365)
-    print(points)
-    print(cccadict)
-    exit(0)
-
+    
     for year, daterange in dates365.items():
+        hrsds = {}
         for nxny in cccadict.keys():
-            ddata = cccadict[nxny]['rsds']
-            geom = cccadict[nxny]['geom']
-            altitude = int(json.loads(cccadict[nxny]['altitude'])[0])
+            ddata = cccadict[nxny]['drsds']
+            geom = cccadict[nxny]['geometry']
+            altitude = cccadict[nxny]['altitude']
+            
             location = pvlib.location.Location(
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
+            
             # GHI daily to GHI hourly
             df = pd.DataFrame(data=ddata)
-            # df.to_csv('rad_dailyRAW.csv')
-            hdata = ghid2ghih(ddata, daterange, location)
-            # hdata.to_csv('hourlyraw.csv')
-            hdata['location'] = geom
+            
+            #daily to hourly
+            hdata = ghid2ghih(ddata, location)
+            #hdata['geometry'] = geom
             # DNI+DHI hourly
             hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
-            #print(hdata.head(144))
-    return(hdata, points)
+            hrsds[nxny] = hdata
+    return(hrsds, points)
 
 
 def dhidni_horizonadaption(hdata, prow):
@@ -734,22 +738,23 @@ def dhidni_horizonadaption(hdata, prow):
     numangles = np.arange(-180, 180, config['pvmod']['numangles'])
     for hidx, hrow in hdata.iterrows():
         # set the direct normal radiation to zero if sun is behind/below obstacle
-        if (hrow['dni'] > 0 and prow['geometry'] == hrow['location']):
+        if (hrow['dni'] > 0):
             # find the angle closest to the hourly azimuth of the sun (w_h)
             #print("below sun")
             idx = (np.abs(numangles - hrow['w_h'])).argmin()
             if phors[idx] < hrow['z_h']:
                 hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
                 hdata.at[hidx, 'dni'] = 0
-    #print(hdata.head(144))
+    # print(hdata.head(144))
     hangles = np.asarray(phors, dtype=float)
     svf = skyviewfactor(hangles)
-    #print(svf)
+    # print(svf)
     hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
+    print(hdata.head(144))
     return(hdata)
 
 
-def simpvsystems(hdata):
+def simpvsystems(hdata, prow):
     result = {}
     for pvsys in config['pvsystem'].keys():
 
@@ -765,6 +770,7 @@ def simpvsystems(hdata):
         res[res < 0] = 0
         result[pvsys] = res
     return(result)
+
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_areaname: str = typer.Option("BruckSmall", "--area", "-a"),
@@ -834,7 +840,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     if config['files']['cccanc'].is_file():
-        nd = xarray.open_dataset(config['files']['cccanc'])
+        nd = xr.open_dataset(config['files']['cccanc'])
     else:
         message = typer.style(str(config['files']['cccanc']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
@@ -886,36 +892,31 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         by='cat').geometry.convex_hull.buffer(50000)
     rs.writeGEO(areabuf, path.joinpath(
         Path.home(), 'pa3c3out'), 'area')
-    
+
     points = gethorizon(points)
-    #print(points)
+    # print(points)
     # sunrise / sunset at area center
     # readNETCDF
     if dbg:
         typer.echo(
             f"Reading CCCA data")
 
-    hdata, points = getcccadata(nd, points)
-    # print(hdata.head(48))
-
-    # with pd.option_context('display.max_rows', None): #, 'display.max_columns', None):
-    #    print(hdata)
-    # exit(0)
-    # idx = datetime
+    hrsds, points = getcccadata(nd, points)
     if dbg:
         print('Number of points:', len(points))
     store = pd.HDFStore(path.joinpath(Path.home(),
                                       'pa3c3out',
-                                      'hourly.hdf'))
-    
+                                      'hourly_raw.hdf'))
+
     # iterate over all points in the area
     for pidx, prow in points.iterrows():
-        hdata = dhidni_horizonadaption(hdata, prow)
-        result = simpvsystems(hdata, prow)
-    
-        #store[str(prow['geometry'].y) + "-" +
+        #print(prow)
+        hrsds[prow['nxny']] = dhidni_horizonadaption(hrsds[prow['nxny']], prow)
+        result = simpvsystems(hrsds[prow['nxny']], prow)
+
+        # store[str(prow['geometry'].y) + "-" +
         #      str(prow['geometry'].x)] = res
-        #res.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
+        # res.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
         #                                      str(prow['geometry'].x) + '.csv'))
 
     store.close()
@@ -929,27 +930,27 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     # print(res.head(144))
     res = res.set_index('index')
     # print(res.head(144))
-    #res.to_csv('hdata.csv')
+    # res.to_csv('hdata.csv')
     # res = res.rename('kWh')
     daily = res.resample('D').sum()/1000
     # print(daily.head(365))
-    #daily.to_csv('ddata.csv')
+    # daily.to_csv('ddata.csv')
     monthly = res.resample('M').sum()/1000
 
-    #monthly.to_csv('mdata.csv')
+    # monthly.to_csv('mdata.csv')
 
     # print(hdata.head(144))
 
     ahourly = hdata.groupby((hdata.index.dayofyear - 1) *
                             24 + hdata.index.hour).ghi.mean()
     # print(ahourly)
-    #ahourly.to_csv('ahourly.csv')
+    # ahourly.to_csv('ahourly.csv')
 
     rad_monthly = hdata.groupby(hdata.index.month).ghi.mean()
-    #rad_monthly.to_csv('rad_monthly.csv')
+    # rad_monthly.to_csv('rad_monthly.csv')
 
     amonthly = monthly.groupby(monthly.index.month).kWh.mean()
-    #amonthly.to_csv('amdata.csv')
+    # amonthly.to_csv('amdata.csv')
     print(amonthly.head(12))
     # print(hourly)
     # print(daily.head(365))
