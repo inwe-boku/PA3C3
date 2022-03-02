@@ -17,7 +17,7 @@ import matplotlib.pyplot as plot
 import pvlib
 #from topocalc.horizon import horizon
 #from topocalc.gradient import gradient_d8
-from topocalc.viewf import viewf
+#from topocalc.viewf import viewf
 from osgeo import gdal
 import calendar
 # import pycrs
