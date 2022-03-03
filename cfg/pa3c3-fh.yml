@@ -83,3 +83,4 @@ pvsystem:
     height: 10 # slant height (without clearance)
     tilt: [30] # tilt of modules [0-90]
     azimuth: [180]
+    shadowperc: 0.29 # percentage when full shadowed (= number of modules * module area (tilt!) in relation to one hectare)

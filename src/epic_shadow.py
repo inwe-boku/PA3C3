@@ -181,6 +181,8 @@ def main(t_configfile: Path = typer.Option(
     print(pvsystem)
     ### open gridinfo and get coordinates, elevation and filename
     
+    
+    
     gridcsv = gridcsv = pd.read_csv(GRIDFILE, sep='\s+')
     i = 0
     for csvi, csvr in gridcsv.iterrows():
@@ -193,7 +195,7 @@ def main(t_configfile: Path = typer.Option(
         dlycsv = gridcsv = pd.read_csv(dlyfn, sep='\s+', header=None)
         dlycsv['date'] = pd.to_datetime(dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
         
-        hdata = ghid2ghih(dlycsv, location)
+        #hdata = ghid2ghih(dlycsv, location)
         print(hdata)
         exit(0)
         
