@@ -18,6 +18,13 @@ __author__ = "Christian Mikovits"
 GRIDFILE = '/data/projects/PA3C3/EPICOKS15/A_Infos/Grid info/OKS15_AT_geodata_new.txt'
 DLYDIR = '/data/projects/PA3C3/EPICOKS15/SZEN'
 
+def PVmoduleinfo(modulename):
+    cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
+    for name in cecmodules.columns:
+        pmodule = cecmodules[name]
+        if (name == modulename):
+            return(pmodule)
+
 def sunset_time(location, date):
     """[summary]
     Parameters
@@ -180,6 +187,15 @@ def main(t_configfile: Path = typer.Option(
     pvsystem = config['pvsystem'][0]
     print(pvsystem)
     ### open gridinfo and get coordinates, elevation and filename
+    
+    tilt = pvsystem['tilt'][0] # tilt of modules, 0 = horizontal, 90 = wall
+    
+    module_length = PVmoduleinfo(pvsystem['module'])['Length']
+    h_soil = pvsystem['height'] - module_length * math.sin(math.radians(tilt))
+    
+    # set main shadow type (roof or wall)
+    pvtype = 'roof'
+    if h_soil < 0: pvtype = 'wall'
     
     
     
