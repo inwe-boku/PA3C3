@@ -18,6 +18,8 @@ __author__ = "Christian Mikovits"
 GRIDFILE = '/data/projects/PA3C3/EPICOKS15/A_Infos/Grid info/OKS15_AT_geodata_new.txt'
 DLYDIR = '/data/projects/PA3C3/EPICOKS15/SZEN'
 
+pd.set_option('display.max_rows', 999)
+
 def PVmoduleinfo(modulename):
     cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
     for name in cecmodules.columns:
@@ -163,9 +165,26 @@ def ghid2ghih(ddata, location):
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
                              columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
         # print(hdata)
-        print(hdata)
         data = data.append(hdata)
         i += 1
+    return(data)
+
+def ghi2dni(data, model='disc'):
+    if model == 'disc':
+        dnidata = pvlib.irradiance.disc(
+            ghi=data['ghi'], solar_zenith=data['z_h'], datetime_or_doy=data.index)
+        data = pd.concat([data, dnidata], axis=1)
+        data.dni = data.dni.round(decimals=2)
+        data['dhi'] = data.ghi - (data.dni * data.cos_z_h)
+        data.kt = data.kt.round(decimals=5)
+
+    elif model == 'erbs':
+        dnidata = pvlib.irradiance.erbs(
+            ghi=data['ghi'], zenith=data['z_h'], datetime_or_doy=data.index, min_cos_zenith=0.065, max_zenith=85)
+        data = pd.concat([data, dnidata], axis=1)
+        data.dni = data.dni.round(decimals=2)
+        data.dhi = data.dhi.round(decimals=2)
+        data.kt = data.kt.round(decimals=5)
     return(data)
 
 ### read daily value from ASCII and transform to hourly
@@ -188,17 +207,18 @@ def main(t_configfile: Path = typer.Option(
     print(pvsystem)
     ### open gridinfo and get coordinates, elevation and filename
     
-    tilt = pvsystem['tilt'][0] # tilt of modules, 0 = horizontal, 90 = wall
+    #tilt = pvsystem['tilt'][0] # tilt of modules, 0 = horizontal, 90 = wall
+    #azimuth = pvsystem['azimuth'][0]
     
-    module_length = PVmoduleinfo(pvsystem['module'])['Length']
-    h_soil = pvsystem['height'] - module_length * math.sin(math.radians(tilt))
+    if pvsystem['lengthwidth'] == 'width':
+        module_lw = PVmoduleinfo(pvsystem['module'])['Width']
+    else:
+        module_lw = PVmoduleinfo(pvsystem['module'])['Length']
     
-    # set main shadow type (roof or wall)
-    pvtype = 'roof'
-    if h_soil < 0: pvtype = 'wall'
+    footprint = round((module_lw * math.cos(math.radians(pvsystem['tilt'][0]))),2)
+    height = pvsystem['height']
     
-    
-    
+        
     gridcsv = gridcsv = pd.read_csv(GRIDFILE, sep='\s+')
     i = 0
     for csvi, csvr in gridcsv.iterrows():
@@ -210,9 +230,23 @@ def main(t_configfile: Path = typer.Option(
         dlyfn = os.path.join(DLYDIR, csvr['Identity'] + '.dly')
         dlycsv = gridcsv = pd.read_csv(dlyfn, sep='\s+', header=None)
         dlycsv['date'] = pd.to_datetime(dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
+        dlycsv = dlycsv[dlycsv[0] < 1982]
         
-        #hdata = ghid2ghih(dlycsv, location)
-        print(hdata)
+        hdata = ghid2ghih(dlycsv, location)
+        hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+        
+        # zenith shadow calc
+        hdata['l_zh1'] = round(footprint + height * np.tan(np.radians((hdata['z_h']))),2)
+        #hdata['l_zh2'] = round(footprint / np.tan(np.radians((hdata['z_h']))),2)
+     
+        #hdata['z_length'] = round((pvsystem['height'] * math.cos(math.radians(90-pvsystem['tilt'][0]))),2)
+        
+        
+        #hdata['r_ah'] = abs(np.sin(np.radians(90 - (hdata['w_h'] - pvsystem['azimuth'][0]))))
+        
+        print(hdata[hdata.index.month == 6].head(n=72))
+        print(footprint)
+        print(pvsystem['moduledist'])        
         exit(0)
         
         

@@ -80,6 +80,10 @@ pvsystem:
     modules_per_string: 84 # number of modules per row
     strings: 10 # number of rows
     distance: 10 # distance in meters between rows
-    height: 0 # slant height (without clearance) - height from soil
+    height: 2 # slant height (without clearance)
+    clearance: 0
     tilt: [90, 90] # tilt of modules [0-90]
     azimuth: [90, 270]
+    lengthwidth: 'width' # module mount orientation
+    moduledist: 10
+    shadowperc: 1 # percentage when full shadowed (= number of modules * module area (tilt!) in relation to one hectare)
