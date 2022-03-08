@@ -264,6 +264,7 @@ def main(t_configfile: Path = typer.Option(
         # reduction of dni
         hdata['dni_red'] = hdata.dni * (1-hdata.s_rel)
         
+        
         print(hdata[hdata.index.month == 1].head(n=24))
         print(hdata[hdata.index.month == 6].head(n=72))
         print(footprint)
