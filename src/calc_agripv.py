@@ -376,10 +376,10 @@ def ghid2ghih(ddata, location):
     for idx, row in ddata.iterrows():
         # raw data is in W/m2 -> this is meteorological mean data per hour and day, have to multiply by 24
         dval = row[0] * 24
-        # print(ddata[i], dval)
+        print(row[0], dval)
         date = idx
         # sunset azimuth
-        settime = sunset_time(location, date)
+        settime = rs.sunset_time(location, date)
         solar_position = location.get_solarposition(settime)
         w_s = solar_position['azimuth'].values[0]
 
@@ -396,7 +396,7 @@ def ghid2ghih(ddata, location):
         # cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
 
         # daily to hourly values
-        ratio = rad_d2h(w_s, w_h, config['ccca']['downscale'])
+        ratio = rs.rad_d2h(w_s, w_h, config['ccca']['downscale'])
         # normalize
         ratio = ratio*1/(sum(ratio))
         # ratio = np.roll(ratio, 1)
@@ -852,3 +852,4 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
 if __name__ == "__main__":
     typer.run(main)
+

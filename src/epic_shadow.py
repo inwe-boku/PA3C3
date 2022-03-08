@@ -134,7 +134,10 @@ def ghid2ghih(ddata, location):
     for idx, row in ddata.iterrows():
         #print(ddata)
         # raw data is in W/m2 -> this is meteorological mean data per hour and day, have to multiply by 24
-        dval = row[3] * 24
+        ###
+        ### conversion MJ/m2 in W/m2
+        ###
+        dval = row[3] * 1000 / 3.6
         # print(ddata[i], dval)
         date = row['date']
         # sunset azimuth
@@ -232,27 +235,52 @@ def main(t_configfile: Path = typer.Option(
         dlycsv['date'] = pd.to_datetime(dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
         dlycsv = dlycsv[dlycsv[0] < 1982]
         
+        #print(dlycsv.head())
+                
         hdata = ghid2ghih(dlycsv, location)
         hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
         
         # zenith shadow calc
-        hdata['l_zh1'] = round(footprint + height * np.tan(np.radians((hdata['z_h']))),2)
-        #hdata['l_zh2'] = round(footprint / np.tan(np.radians((hdata['z_h']))),2)
-     
-        #hdata['z_length'] = round((pvsystem['height'] * math.cos(math.radians(90-pvsystem['tilt'][0]))),2)
+        #
+        # the 'footprint' of the module on the ground
+        # is independent of the zenith and always the same
         
+        # the shade of the module height varies with the zenith
+        z_b = round(height / np.tan(np.radians(90-(hdata['z_h']))),2)
         
-        #hdata['r_ah'] = abs(np.sin(np.radians(90 - (hdata['w_h'] - pvsystem['azimuth'][0]))))
+        # shadefree length: z_c = pvsystem['moduledist'] - hdata['z_b']
         
+        # zenith angle shade relation; 1 = full shade, 0 = no shade
+        hdata['z_rel'] = round((footprint + abs(z_b))/abs(pvsystem['moduledist'] - z_b),2)
+        hdata.loc[hdata.z_rel > 1 , 'z_rel'] = 1
+        
+        # azimuth shadow calc
+        # relation shading the sun; 1 = full shade, 0 = no shade
+        hdata['w_rel'] = round(abs(np.cos(np.radians(pvsystem['azimuth'][0] - hdata['w_h']))),2)
+
+        # combination of zenith and azimuth shading
+        hdata['s_rel'] = round(hdata.z_rel*hdata.w_rel,2)
+        
+        # reduction of dni
+        hdata['dni_red'] = hdata.dni * (1-hdata.s_rel)
+        
+        print(hdata[hdata.index.month == 1].head(n=24))
         print(hdata[hdata.index.month == 6].head(n=72))
         print(footprint)
+        print(height)
         print(pvsystem['moduledist'])        
+        print(pvsystem['azimuth'][0])
         exit(0)
         
         
         for dlyi, dlyr in gridcsv.iterrows():
             date = dlyr['date']
             srad = dlyr[3] # MJ/m2 and day
+            
+            ###
+            ### conversion MJ/m2 in W/m2
+            srad = srad * 10^3 / 3.6
+            ###
             
             
             
