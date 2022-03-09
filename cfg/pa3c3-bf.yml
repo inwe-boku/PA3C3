@@ -87,3 +87,4 @@ pvsystem:
     lengthwidth: 'width' # module mount orientation
     moduledist: 10
     shadowperc: 1 # percentage when full shadowed (= number of modules * module area (tilt!) in relation to one hectare)
+    svf: 0.928 # skyviewfactor for shading by the modules; calculated manually

@@ -84,6 +84,7 @@ pvsystem:
     clearance: 10
     tilt: [30] # tilt of modules [0-90]
     azimuth: [180]
-    shadowperc: 0.29 # percentage when full shadowed (= number of modules * module area (tilt!) in relation to one hectare)
+    #shadowperc: 0.29 # percentage when full shadowed (= number of modules * module area (tilt!) in relation to one hectare)
     lengthwidth: 'length' # module mount orientation
     moduledist: 3.32
+    svf: 0.917 # skyviewfactor for shading by the modules; calculated manually

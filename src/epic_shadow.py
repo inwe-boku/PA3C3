@@ -17,8 +17,13 @@ __author__ = "Christian Mikovits"
 
 GRIDFILE = '/data/projects/PA3C3/EPICOKS15/A_Infos/Grid info/OKS15_AT_geodata_new.txt'
 DLYDIR = '/data/projects/PA3C3/EPICOKS15/SZEN'
+DLYDIRMOD = '/data/projects/PA3C3/EPICOKS15/SZENMOD'
 
-pd.set_option('display.max_rows', 999)
+pd.set_option('mode.chained_assignment', None)
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.expand_frame_repr', False)
+pd.set_option('max_colwidth', None)
 
 def PVmoduleinfo(modulename):
     cecmodules = pvlib.pvsystem.retrieve_sam('CECMod')
@@ -138,7 +143,7 @@ def ghid2ghih(ddata, location):
         ### conversion MJ/m2 in W/m2
         ###
         dval = row[3] * 1000 / 3.6
-        # print(ddata[i], dval)
+        #print(dval)
         date = row['date']
         # sunset azimuth
         settime = sunset_time(location, date)
@@ -167,7 +172,8 @@ def ghid2ghih(ddata, location):
         tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
                              columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
-        # print(hdata)
+        #print(hdata)
+        #exit(0)
         data = data.append(hdata)
         i += 1
     return(data)
@@ -204,7 +210,7 @@ def main(t_configfile: Path = typer.Option(
     ### read PV config
     
     config = rs.getyml(t_configfile)
-    config['ccca']['downscale'] = 'cpr'
+    config['ccca']['downscale'] = 'liu'
         
     pvsystem = config['pvsystem'][0]
     print(pvsystem)
@@ -226,14 +232,16 @@ def main(t_configfile: Path = typer.Option(
     i = 0
     for csvi, csvr in gridcsv.iterrows():
         i = i+1
-        if i == 2: break
+        if i < 56601: continue
+        if i > 56601: continue
+        #print('continue', i)
         location = pvlib.location.Location(
                 csvr['longitude'], csvr['latitude'],
                 'UTC', csvr['Elev'], csvr['Identity'])
         dlyfn = os.path.join(DLYDIR, csvr['Identity'] + '.dly')
         dlycsv = gridcsv = pd.read_csv(dlyfn, sep='\s+', header=None)
         dlycsv['date'] = pd.to_datetime(dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
-        dlycsv = dlycsv[dlycsv[0] < 1982]
+        #dlycsv = dlycsv[dlycsv[0] < 1982]
         
         #print(dlycsv.head())
                 
@@ -264,42 +272,41 @@ def main(t_configfile: Path = typer.Option(
         # reduction of dni
         hdata['dni_red'] = hdata.dni * (1-hdata.s_rel)
         
+        # reduction of dhi by the skyviewfactor
+        hdata['dhi_red'] = hdata.dhi * pvsystem['svf']
         
-        print(hdata[hdata.index.month == 1].head(n=24))
-        print(hdata[hdata.index.month == 6].head(n=72))
-        print(footprint)
-        print(height)
-        print(pvsystem['moduledist'])        
-        print(pvsystem['azimuth'][0])
-        exit(0)
+        # combine dni and dhi to ghi
+        
+        hdata['ghi_red'] = hdata['dni_red']*hdata['cos_z_h'] + hdata['dhi_red']
+        hdata['MJpm2'] = hdata['ghi_red'] / 1000 * 3.6
+        
+        ddata = hdata.resample('D').sum()
+        #for m in range(1,12,2):
+        #    print(hdata[hdata.index.month == m].head(n=24))
+        if 0==1:
+            tempdata = np.stack([dlycsv[3].to_numpy(), ddata['MJpm2'].to_numpy()], axis=1)
+            ddata = pd.DataFrame(data=tempdata,
+                                columns=['MJpm2', 'MJpm2_red'])
+            ddata['perc'] = ddata['MJpm2_red']/ddata['MJpm2']
+            print(ddata)
+        #red = ddata['MJpm2'].to_numpy().transpose()
+        #print(ddata['MJpm2'].values)
+        dlycsv[3] = np.round(ddata['MJpm2'].values,1)
+        dlycsv = dlycsv.drop(columns=['date'])
+        dlycsv = dlycsv.replace(np.nan, '', regex=True)
+        
+        # write the modifications to a new directory
+        dlyfnmod = os.path.join(DLYDIRMOD, csvr['Identity'] + '.dly')
+        #dlycsv.to_csv(dlyfnmod, sep='\t', header=None, index=False)
+        
+        with open(dlyfnmod, 'w') as fo:
+            fo.write(dlycsv.__repr__())
+        with open(dlyfnmod, 'r') as fi:
+            data = fi.read().splitlines(True)
+        with open(dlyfnmod, 'w') as fo:
+            fo.writelines(data[1:])
+        print('written file', dlyfnmod)
         
         
-        for dlyi, dlyr in gridcsv.iterrows():
-            date = dlyr['date']
-            srad = dlyr[3] # MJ/m2 and day
-            
-            ###
-            ### conversion MJ/m2 in W/m2
-            srad = srad * 10^3 / 3.6
-            ###
-            
-            
-            
-            ### get sunrise and set for coordinates 
-            sstime = rs.sunset_time(location, date)
-            times = pd.date_range(date, date+pd.Timedelta('24h'), freq='1h')
-            solpos = pvlib.solarposition.get_solarposition(times, csvr['latitude'], csvr['longitude'])
-            solpos = solpos.loc[solpos['apparent_elevation'] > 0, :]
-            #print(location)
-            solpos['r_azimuth'] = np.sin(np.radians(90 - (solpos['azimuth'] - pvsystem['azimuth'])))
-            solpos['r_zenith'] = np.cos(np.radians((solpos['zenith']- pvsystem['tilt'][0])))
-            print(solpos)
-            
-            # calculate hourly values for shadowing reduction
-            
-            print(sstime)
-        
-    
-
 if __name__ == "__main__":
     typer.run(main)
