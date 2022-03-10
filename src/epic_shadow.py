@@ -241,7 +241,7 @@ def main(t_configfile: Path = typer.Option(
         dlyfn = os.path.join(DLYDIR, csvr['Identity'] + '.dly')
         dlycsv = gridcsv = pd.read_csv(dlyfn, sep='\s+', header=None)
         dlycsv['date'] = pd.to_datetime(dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
-        #dlycsv = dlycsv[dlycsv[0] < 1982]
+        dlycsv = dlycsv[dlycsv[0] < 1986]
         
         #print(dlycsv.head())
                 
@@ -270,7 +270,7 @@ def main(t_configfile: Path = typer.Option(
         hdata['s_rel'] = round(hdata.z_rel*hdata.w_rel,2)
         
         # reduction of dni
-        hdata['dni_red'] = hdata.dni * (1-hdata.s_rel)
+        hdata['dni_red'] = hdata.dni * (1 - hdata.s_rel)
         
         # reduction of dhi by the skyviewfactor
         hdata['dhi_red'] = hdata.dhi * pvsystem['svf']
@@ -279,22 +279,29 @@ def main(t_configfile: Path = typer.Option(
         
         hdata['ghi_red'] = hdata['dni_red']*hdata['cos_z_h'] + hdata['dhi_red']
         hdata['MJpm2'] = hdata['ghi_red'] / 1000 * 3.6
-        
+                
         ddata = hdata.resample('D').sum()
-        #for m in range(1,12,2):
-        #    print(hdata[hdata.index.month == m].head(n=24))
-        if 0==1:
+        
+        if 1 == 0:
             tempdata = np.stack([dlycsv[3].to_numpy(), ddata['MJpm2'].to_numpy()], axis=1)
             ddata = pd.DataFrame(data=tempdata,
                                 columns=['MJpm2', 'MJpm2_red'])
             ddata['perc'] = ddata['MJpm2_red']/ddata['MJpm2']
             print(ddata)
+            if 1 == 1:
+                for m in range(1,12,1):
+                    print(hdata[hdata.index.month == m].head(n=24))
+                print(pvsystem['svf'])
+        if 1 == 1:
+            with open('hdata.csv', 'w') as fo:
+                fo.write(hdata.__repr__())
         #red = ddata['MJpm2'].to_numpy().transpose()
         #print(ddata['MJpm2'].values)
         dlycsv[3] = np.round(ddata['MJpm2'].values,1)
         dlycsv = dlycsv.drop(columns=['date'])
         dlycsv = dlycsv.replace(np.nan, '', regex=True)
-        
+        # drop index col
+        dlycsv = dlycsv.set_index(0)
         # write the modifications to a new directory
         dlyfnmod = os.path.join(DLYDIRMOD, csvr['Identity'] + '.dly')
         #dlycsv.to_csv(dlyfnmod, sep='\t', header=None, index=False)
@@ -304,7 +311,7 @@ def main(t_configfile: Path = typer.Option(
         with open(dlyfnmod, 'r') as fi:
             data = fi.read().splitlines(True)
         with open(dlyfnmod, 'w') as fo:
-            fo.writelines(data[1:])
+            fo.writelines(data[2:])
         print('written file', dlyfnmod)
         
         
