@@ -12,12 +12,13 @@ import numpy as np
 import pvlib
 import suntimes
 import math
+from calendar import isleap
 
 __author__ = "Christian Mikovits"
 
 GRIDFILE = '/data/projects/PA3C3/EPICOKS15/A_Infos/Grid info/OKS15_AT_geodata_new.txt'
 DLYDIR = '/data/projects/PA3C3/EPICOKS15/SZEN'
-DLYDIRMOD = '/data/projects/PA3C3/EPICOKS15/SZENMOD'
+DLYDIRMOD = '/data/projects/PA3C3/EPICOKS15/SZENMODTEST'
 BBOX = [48.18, 13.78, 48.36, 14.11]
 
 pd.set_option('mode.chained_assignment', None)
@@ -139,48 +140,65 @@ def rad_d2h(w_s, w, method):
 
 
 def ghid2ghih(ddata, location):
-    i = 0
-    data = pd.DataFrame()
+    years = ddata[0].unique()
+    hvals = hourly_solarangles(location, leap=False)
+    lhvals = hourly_solarangles(location, leap=True)
+    
+    hdata = pd.DataFrame()
+    cl = 0
+    for y in years:
+        if isleap(y):
+            hdata = hdata.append(lhvals)
+        else:
+            hdata = hdata.append(hvals)
+
+    dvals = ddata[3].values * 1000 / 3.6
+    hvals = np.repeat(dvals,24)
+
+    hdata['ghi'] = hvals * hdata.ratio
+    print(hdata.tail(n=72))
+    exit(0)    
     for idx, row in ddata.iterrows():
-        # print(ddata)
+        print(row)
+        exit(row['date'].date())
         # raw data is in W/m2 -> this is meteorological mean data per hour and day, have to multiply by 24
         ###
         # conversion MJ/m2 in W/m2
         ###
-        dval = row[3] * 1000 / 3.6
+        #dval = row[3] * 1000 / 3.6
         # print(dval)
-        date = row['date']
+        #date = row['date']
         # sunset azimuth
-        settime = sunset_time(location, date)
-        solar_position = location.get_solarposition(settime)
-        w_s = solar_position['azimuth'].values[0]
+        #settime = sunset_time(location, date)
+        #solar_position = location.get_solarposition(settime)
+        #w_s = solar_position['azimuth'].values[0]
 
         # hourly azimuth
-        datetimes = pd.date_range(
-            start=date + datetime.timedelta(hours=0.5), end=date + datetime.timedelta(hours=23.5), freq='H', tz=config['ccca']['tz'])
-        solar_position = location.get_solarposition(datetimes)
+        #datetimes = pd.date_range(
+        #    start=date + datetime.timedelta(hours=0.5), end=date + datetime.timedelta(hours=23.5), freq='H', tz=config['ccca']['tz'])
+        #solar_position = location.get_solarposition(datetimes)
         # azimuth of sun
-        w_h = np.around(solar_position['azimuth'].values, decimals=2)
+        #w_h = np.around(solar_position['azimuth'].values, decimals=2)
         # zenith of sun
-        z_h = np.around(solar_position['zenith'].values, decimals=2)
-        z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
-        cos_z_h = np.cos(np.deg2rad(z_h))
+        #z_h = np.around(solar_position['zenith'].values, decimals=2)
+        #z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
+        #cos_z_h = np.cos(np.deg2rad(z_h))
         # cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
 
         # daily to hourly values
         # print(config['ccca'])
-        ratio = rad_d2h(w_s, w_h, config['ccca']['downscale'])
+        #ratio = rad_d2h(w_s, w_h, config['ccca']['downscale'])
         # normalize
-        ratio = ratio*1/(sum(ratio))
+        #ratio = ratio*1/(sum(ratio))
         # ratio = np.roll(ratio, 1)
-        hvalues = np.around(dval*ratio, decimals=2)
-        tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
-        hdata = pd.DataFrame(data=tempdata, index=datetimes,
-                             columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
+        #hvalues = np.around(dval*ratio, decimals=2)
+        #tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
+        #hdata = pd.DataFrame(data=tempdata, index=datetimes,
+        #                     columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
         # print(hdata)
         # exit(0)
-        data = data.append(hdata)
-        i += 1
+        #data = data.append(hdata)
+        #i += 1
     return(data)
 
 
@@ -209,6 +227,48 @@ def ghi2dni(data, model='disc'):
 # write ASCII
 
 
+def hourly_solarangles(location, leap=False):
+    year = 1999
+    if leap:
+        year = 2000
+    startdate = datetime.datetime(year, 1, 1, 0, 30, 0)
+    enddate = datetime.datetime(year, 12, 31, 23, 30, 0)
+
+    datetimes = pd.date_range(
+        start=startdate, end=enddate, freq='H', tz=config['ccca']['tz'])
+    
+    settime = rs.sunset_time(location, datetimes.date())
+    print(settime)
+    solar_position = location.get_solarposition(settime)
+    w_s = solar_position['azimuth'].values[0]
+    
+    solar_position = location.get_solarposition(datetimes)
+    #print(solar_position)
+    # sunset azimuth of the sun
+    #w_s = solar_position['azimuth'].values[0]
+    #print(w_s)
+    #exit(0)
+    # azimuth of sun
+    w_h = np.around(solar_position['azimuth'].values, decimals=2)
+    # zenith of sun
+    z_h = np.around(solar_position['zenith'].values, decimals=2)
+    z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
+    cos_z_h = np.cos(np.deg2rad(z_h))
+
+    # ration for each hour
+    ratio = rad_d2h(w_s, w_h, 'cpr')
+    # normalize
+    ratio = ratio*1/(sum(ratio))
+    # ratio = np.roll(ratio, 1)
+    #hvalues = np.around(dval*ratio, decimals=2)
+    tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio], axis=1)
+    hdata = pd.DataFrame(data=tempdata, index=datetimes,
+                         columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio'])
+    print(hdata.tail(n=72))
+
+    return(hdata)
+
+
 def main(t_configfile: Path = typer.Option(
     "cfg/testcfg.yml", "--config", "-c"),
 ):
@@ -224,7 +284,7 @@ def main(t_configfile: Path = typer.Option(
     # open gridinfo and get coordinates, elevation and filename
 
     # tilt = pvsystem['tilt'][0] # tilt of modules, 0 = horizontal, 90 = wall
-    #azimuth = pvsystem['azimuth'][0]
+    # azimuth = pvsystem['azimuth'][0]
 
     if pvsystem['lengthwidth'] == 'width':
         module_lw = PVmoduleinfo(pvsystem['module'])['Width']
@@ -236,12 +296,13 @@ def main(t_configfile: Path = typer.Option(
     height = pvsystem['height']
 
     gridcsv = gridcsv = pd.read_csv(GRIDFILE, sep='\s+')
+
     print(BBOX)
     for csvi, csvr in gridcsv.iterrows():
         if (csvr['latitude'] < BBOX[1] or csvr['latitude'] > BBOX[3] or csvr['longitude'] < BBOX[0] or csvr['longitude'] > BBOX[2]):
             continue
-        print('processing',csvr)
-        #print('continue', i)
+        print('processing', csvr)
+
         location = pvlib.location.Location(
             csvr['longitude'], csvr['latitude'],
             'UTC', csvr['Elev'], csvr['Identity'])
@@ -249,7 +310,6 @@ def main(t_configfile: Path = typer.Option(
         dlycsv = gridcsv = pd.read_csv(dlyfn, sep='\s+', header=None)
         dlycsv['date'] = pd.to_datetime(
             dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
-        #dlycsv = dlycsv[dlycsv[0] < 1986]
 
         # print(dlycsv.head())
 
@@ -303,10 +363,10 @@ def main(t_configfile: Path = typer.Option(
                 for m in range(1, 12, 1):
                     print(hdata[hdata.index.month == m].head(n=24))
                 print(pvsystem['svf'])
-        if 1 == 1:
+        if 1 == 0:
             with open('hdata.csv', 'w') as fo:
                 fo.write(hdata.__repr__())
-        #red = ddata['MJpm2'].to_numpy().transpose()
+        # red = ddata['MJpm2'].to_numpy().transpose()
         # print(ddata['MJpm2'].values)
         dlycsv[3] = np.round(ddata['MJpm2'].values, 1)
         dlycsv = dlycsv.drop(columns=['date'])
@@ -315,7 +375,7 @@ def main(t_configfile: Path = typer.Option(
         dlycsv = dlycsv.set_index(0)
         # write the modifications to a new directory
         dlyfnmod = os.path.join(DLYDIRMOD, csvr['Identity'] + '.dly')
-        #dlycsv.to_csv(dlyfnmod, sep='\t', header=None, index=False)
+        # dlycsv.to_csv(dlyfnmod, sep='\t', header=None, index=False)
 
         with open(dlyfnmod, 'w') as fo:
             fo.write(dlycsv.__repr__())
