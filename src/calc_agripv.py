@@ -31,8 +31,6 @@ from pprint import pprint
 import tempfile
 import renspatial as rs
 
-pd.set_option("max_rows", 9999)
-
 # constants
 
 DEFAULTPATH = os.path.join('exampledata')
@@ -404,8 +402,9 @@ def ghid2ghih(ddata, location):
         tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
                              columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
-        # print(hdata)
-        data = data.append(hdata)
+        #print(hdata.head(n=24))
+        #print(data.head(n=24))
+        data = pd.concat([data, hdata])
         i += 1
     return(data)
 
@@ -544,12 +543,12 @@ def pvsystem(pvsys, location):
 
 def gethorizon(points):
     # gets horizon for landuse points
+    if dbg:
+        typer.echo(
+            f"\tProcessing Points")
     if config['files']['hornc']:
         hornc = xr.open_dataset(config['files']['hornc'])
     for idx, row in points.iterrows():
-        if dbg:
-            typer.echo(
-                f"\tProcessing Points")
         if config['files']['hornc']:
             horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
             res = horres['horizon'].values
@@ -593,22 +592,22 @@ def getcccadata(nd, points):
     for year, daterange in dates360.items():
         daterange365 = dates365[year]
         points, cccadict = cccapoints(nd, points, daterange, daterange365)
-    
+
     for year, daterange in dates365.items():
         hrsds = {}
         for nxny in cccadict.keys():
             ddata = cccadict[nxny]['drsds']
             geom = cccadict[nxny]['geometry']
             altitude = cccadict[nxny]['altitude']
-            
+
             location = pvlib.location.Location(
                 geom.y, geom.x,
                 'UTC', altitude, nxny)
-            
+
             # GHI daily to GHI hourly
             df = pd.DataFrame(data=ddata)
-            
-            #daily to hourly
+
+            # daily to hourly
             hdata = ghid2ghih(ddata, location)
             #hdata['geometry'] = geom
             # DNI+DHI hourly
@@ -696,7 +695,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(message)
         raise typer.Exit()
 
-    if not config['ccca']['downscale']:
+    if 'downscale' not in config['ccca']:
         config['ccca']['downscale'] = 'cpr'
 
     config['files'] = {}
@@ -794,7 +793,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     # iterate over all points in the area
     for pidx, prow in points.iterrows():
-        #print(prow)
+        # print(prow)
         hrsds[prow['nxny']] = dhidni_horizonadaption(hrsds[prow['nxny']], prow)
         result = simpvsystems(hrsds[prow['nxny']], prow)
 
@@ -807,8 +806,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     # print(mcsim.results)
     # statistics for hdata
+
     print(result)
     exit(0)
+    pvstatistics(result)
+    print(result)
     res = res * 10
     res = res.reset_index(name='kWh')
     # print(res.head(144))
@@ -852,4 +854,3 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
 if __name__ == "__main__":
     typer.run(main)
-
