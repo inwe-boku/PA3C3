@@ -8,6 +8,8 @@ import os
 import datetime
 import renspatial as rs
 import pandas as pd
+import dask
+import dask.dataframe as ddf
 import numpy as np
 import pvlib
 import suntimes
@@ -20,7 +22,8 @@ __author__ = "Christian Mikovits"
 GRIDFILE = '/data/projects/PA3C3/EPICOKS15/A_Infos/Grid info/OKS15_AT_geodata_new.txt'
 DLYDIR = '/data/projects/PA3C3/EPICOKS15/SZEN'
 DLYDIRMOD = '/data/projects/PA3C3/EPICOKS15/SZENMODTEST'
-BBOX = [48.18, 13.78, 48.36, 14.11]
+BBOX = [0, 0, 100, 100]  # [48.18, 13.78, 48.36, 14.11]
+WORKERS = 16
 
 pd.set_option('mode.chained_assignment', None)
 pd.set_option('display.max_rows', None)
@@ -149,10 +152,10 @@ def ghid2ghih(ddata, location):
     cl = 0
     for y in years:
         if isleap(y):
-            lhvals.index = lhvals.index.map(lambda x: x.replace(year = y))
+            lhvals.index = lhvals.index.map(lambda x: x.replace(year=y))
             hdata = pd.concat([hdata, lhvals])
         else:
-            hvals.index = hvals.index.map(lambda x: x.replace(year = y))
+            hvals.index = hvals.index.map(lambda x: x.replace(year=y))
             hdata = pd.concat([hdata, hvals])
 
     dvals = ddata[3].values * 1000 / 3.6
@@ -230,6 +233,113 @@ def hourly_solarangles(location, leap=False):
     return(data)
 
 
+def itergrid(csvr):
+    #    idx, row = arg
+    starttime = timeit.default_timer()
+
+    #print('processing', csvr)
+
+    location = pvlib.location.Location(
+        csvr['longitude'], csvr['latitude'],
+        'UTC', csvr['Elev'], csvr['Identity'])
+    dlyfn = os.path.join(DLYDIR, csvr['Identity'] + '.dly')
+    dlycsv = gridcsv = pd.read_csv(dlyfn, sep='\s+', header=None)
+    dlycsv['date'] = pd.to_datetime(
+        dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
+
+    # print(dlycsv.head())
+
+    hdata = ghid2ghih(dlycsv, location)
+    hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+    
+    pvsystem = config['pvsystem'][0]
+    #print(pvsystem)
+
+    if pvsystem['lengthwidth'] == 'width':
+        module_lw = PVmoduleinfo(pvsystem['module'])['Width']
+    else:
+        module_lw = PVmoduleinfo(pvsystem['module'])['Length']
+
+    footprint = round(
+        (module_lw * math.cos(math.radians(pvsystem['tilt'][0]))), 2)
+
+    # zenith shadow calc
+    #
+    # the 'footprint' of the module on the ground
+    # is independent of the zenith and always the same
+
+    # the shade of the module height varies with the zenith
+    z_b = round(pvsystem['height'] / np.tan(np.radians(90-(hdata['z_h']))), 2)
+
+    # shadefree length: z_c = pvsystem['moduledist'] - hdata['z_b']
+
+    # zenith angle shade relation; 1 = full shade, 0 = no shade
+    hdata['z_rel'] = round((footprint + abs(z_b)) /
+                           abs(pvsystem['moduledist'] - z_b), 2)
+    hdata.loc[hdata.z_rel > 1, 'z_rel'] = 1
+
+    # azimuth shadow calc
+    # relation shading the sun; 1 = full shade, 0 = no shade
+    hdata['w_rel'] = round(
+        abs(np.cos(np.radians(pvsystem['azimuth'][0] - hdata['w_h']))), 2)
+
+    # combination of zenith and azimuth shading
+    hdata['s_rel'] = round(hdata.z_rel*hdata.w_rel, 2)
+
+    # reduction of dni
+    hdata['dni_red'] = hdata.dni * (1 - hdata.s_rel)
+
+    # reduction of dhi by the skyviewfactor
+    hdata['dhi_red'] = hdata.dhi * pvsystem['svf']
+
+    # combine dni and dhi to ghi
+
+    hdata['ghi_red'] = hdata['dni_red']*hdata['cos_z_h'] + hdata['dhi_red']
+    hdata['MJpm2'] = hdata['ghi_red'] / 1000 * 3.6
+    #print("The time difference is :", timeit.default_timer() - starttime)
+    # print(hdata.head(n=72))
+
+    # print(len(hdata))
+    ddata = hdata.resample('D').sum()
+    # print(len(ddata))
+
+    if 1 == 0:
+        tempdata = np.stack(
+            [dlycsv[3].to_numpy(), ddata['MJpm2'].to_numpy()], axis=1)
+        ddata = pd.DataFrame(data=tempdata,
+                             columns=['MJpm2', 'MJpm2_red'])
+        ddata['perc'] = ddata['MJpm2_red']/ddata['MJpm2']
+        print(ddata)
+        if 1 == 1:
+            for m in range(1, 12, 1):
+                print(hdata[hdata.index.month == m].head(n=24))
+            print(pvsystem['svf'])
+    if 1 == 0:
+        with open('hdata.csv', 'w') as fo:
+            fo.write(hdata.__repr__())
+    # red = ddata['MJpm2'].to_numpy().transpose()
+    # print(ddata['MJpm2'].values)
+    # print(len(dlycsv[3]))
+    # exit(0)
+    dlycsv[3] = np.round(ddata['MJpm2'].values, 1)
+    dlycsv = dlycsv.drop(columns=['date'])
+    dlycsv = dlycsv.replace(np.nan, '', regex=True)
+    # drop index col
+    dlycsv = dlycsv.set_index(0)
+    # write the modifications to a new directory
+    dlyfnmod = os.path.join(DLYDIRMOD, csvr['Identity'] + '.dly')
+    # dlycsv.to_csv(dlyfnmod, sep='\t', header=None, index=False)
+
+    with open(dlyfnmod, 'w') as fo:
+        fo.write(dlycsv.__repr__())
+    with open(dlyfnmod, 'r') as fi:
+        data = fi.read().splitlines(True)
+    with open(dlyfnmod, 'w') as fo:
+        fo.writelines(data[2:])
+    print('written file', dlyfnmod)
+    #print("The time difference is :", timeit.default_timer() - starttime)
+
+
 def main(t_configfile: Path = typer.Option(
     "cfg/testcfg.yml", "--config", "-c"),
 ):
@@ -240,119 +350,25 @@ def main(t_configfile: Path = typer.Option(
     config = rs.getyml(t_configfile)
     config['ccca']['downscale'] = 'liu'
 
-    pvsystem = config['pvsystem'][0]
-    print(pvsystem)
     # open gridinfo and get coordinates, elevation and filename
 
     # tilt = pvsystem['tilt'][0] # tilt of modules, 0 = horizontal, 90 = wall
     # azimuth = pvsystem['azimuth'][0]
 
-    if pvsystem['lengthwidth'] == 'width':
-        module_lw = PVmoduleinfo(pvsystem['module'])['Width']
-    else:
-        module_lw = PVmoduleinfo(pvsystem['module'])['Length']
-
-    footprint = round(
-        (module_lw * math.cos(math.radians(pvsystem['tilt'][0]))), 2)
-    height = pvsystem['height']
-
-    gridcsv = gridcsv = pd.read_csv(GRIDFILE, sep='\s+')
-
+    gridcsv = pd.read_csv(GRIDFILE, sep='\s+')
+    print(config['pvsystem'][0])
     print(BBOX)
-    for csvi, csvr in gridcsv.iterrows():
-        starttime = timeit.default_timer()
-        if (csvr['latitude'] < BBOX[1] or csvr['latitude'] > BBOX[3] or csvr['longitude'] < BBOX[0] or csvr['longitude'] > BBOX[2]):
-            continue
-        print('processing', csvr)
+    gridcsv = gridcsv[gridcsv['latitude'] > BBOX[1]]
+    gridcsv = gridcsv[gridcsv['latitude'] < BBOX[3]]
+    gridcsv = gridcsv[gridcsv['longitude'] > BBOX[0]]
+    gridcsv = gridcsv[gridcsv['longitude'] < BBOX[2]]
 
-        location = pvlib.location.Location(
-            csvr['longitude'], csvr['latitude'],
-            'UTC', csvr['Elev'], csvr['Identity'])
-        dlyfn = os.path.join(DLYDIR, csvr['Identity'] + '.dly')
-        dlycsv = gridcsv = pd.read_csv(dlyfn, sep='\s+', header=None)
-        dlycsv['date'] = pd.to_datetime(
-            dlycsv[0]*10000+dlycsv[1]*100+dlycsv[2], format='%Y%m%d')
-
-        # print(dlycsv.head())
-
-        hdata = ghid2ghih(dlycsv, location)
-        hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
-
-        # zenith shadow calc
-        #
-        # the 'footprint' of the module on the ground
-        # is independent of the zenith and always the same
-
-        # the shade of the module height varies with the zenith
-        z_b = round(height / np.tan(np.radians(90-(hdata['z_h']))), 2)
-
-        # shadefree length: z_c = pvsystem['moduledist'] - hdata['z_b']
-
-        # zenith angle shade relation; 1 = full shade, 0 = no shade
-        hdata['z_rel'] = round((footprint + abs(z_b)) /
-                               abs(pvsystem['moduledist'] - z_b), 2)
-        hdata.loc[hdata.z_rel > 1, 'z_rel'] = 1
-
-        # azimuth shadow calc
-        # relation shading the sun; 1 = full shade, 0 = no shade
-        hdata['w_rel'] = round(
-            abs(np.cos(np.radians(pvsystem['azimuth'][0] - hdata['w_h']))), 2)
-
-        # combination of zenith and azimuth shading
-        hdata['s_rel'] = round(hdata.z_rel*hdata.w_rel, 2)
-
-        # reduction of dni
-        hdata['dni_red'] = hdata.dni * (1 - hdata.s_rel)
-
-        # reduction of dhi by the skyviewfactor
-        hdata['dhi_red'] = hdata.dhi * pvsystem['svf']
-
-        # combine dni and dhi to ghi
-
-        hdata['ghi_red'] = hdata['dni_red']*hdata['cos_z_h'] + hdata['dhi_red']
-        hdata['MJpm2'] = hdata['ghi_red'] / 1000 * 3.6
-        print("The time difference is :", timeit.default_timer() - starttime)
-        print(hdata.head(n=72))
-        
-        print(len(hdata))
-        ddata = hdata.resample('D').sum()
-        print(len(ddata))
-
-        if 1 == 0:
-            tempdata=np.stack(
-                [dlycsv[3].to_numpy(), ddata['MJpm2'].to_numpy()], axis=1)
-            ddata=pd.DataFrame(data=tempdata,
-                                 columns=['MJpm2', 'MJpm2_red'])
-            ddata['perc']=ddata['MJpm2_red']/ddata['MJpm2']
-            print(ddata)
-            if 1 == 1:
-                for m in range(1, 12, 1):
-                    print(hdata[hdata.index.month == m].head(n=24))
-                print(pvsystem['svf'])
-        if 1 == 0:
-            with open('hdata.csv', 'w') as fo:
-                fo.write(hdata.__repr__())
-        # red = ddata['MJpm2'].to_numpy().transpose()
-        # print(ddata['MJpm2'].values)
-        print(len(dlycsv[3]))
-        exit(0)
-        dlycsv[3]=np.round(ddata['MJpm2'].values, 1)
-        dlycsv=dlycsv.drop(columns=['date'])
-        dlycsv=dlycsv.replace(np.nan, '', regex=True)
-        # drop index col
-        dlycsv=dlycsv.set_index(0)
-        # write the modifications to a new directory
-        dlyfnmod=os.path.join(DLYDIRMOD, csvr['Identity'] + '.dly')
-        # dlycsv.to_csv(dlyfnmod, sep='\t', header=None, index=False)
-
-        with open(dlyfnmod, 'w') as fo:
-            fo.write(dlycsv.__repr__())
-        with open(dlyfnmod, 'r') as fi:
-            data=fi.read().splitlines(True)
-        with open(dlyfnmod, 'w') as fo:
-            fo.writelines(data[2:])
-        print('written file', dlyfnmod)
-        print("The time difference is :", timeit.default_timer() - starttime)
+    df_dask = ddf.from_pandas(gridcsv, npartitions=1024)
+    #print(df_dask.shape)
+    with dask.config.set(num_workers=WORKERS):
+        # for csvi, csvr in gridcsv.iterrows():
+        df_dask.apply(lambda x: itergrid(x), meta=('str'),
+                      axis=1).compute(scheduler='processes')
 
 
 if __name__ == "__main__":
