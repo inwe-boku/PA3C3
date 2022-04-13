@@ -213,7 +213,7 @@ def randompoints(polygons, samples_per_ha=1, crsa='epsg:6933'):
                                      geometry=gpd.points_from_xy(df.Longitude,
                                                                  df.Latitude),
                                      crs=polygons.crs)
-                p = gpd.sjoin(p, poly, how='left', op='within')
+                p = gpd.sjoin(p, poly, how='left', predicate='within')
                 p = p.dropna()
                 if len(p) == 1:
                     count += 1

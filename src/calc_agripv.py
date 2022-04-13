@@ -273,7 +273,7 @@ def areaselection():
     lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
                 & (lupolys['B_compact']) & (lupolys['B_altitude']) & (lupolys['B_slope']), 'PV'] = True
     points = gpd.sjoin(
-        points, lupolys[lupolys['PV']], how='left', op='within')
+        points, lupolys[lupolys['PV']], how='left', predicate='within')
     points.drop(['altitude_left', 'nidx', 'index_right',
                 'level_1', 'ndst'], axis=1, inplace=True)
     points.rename(columns={'slope_left': 'slope',
