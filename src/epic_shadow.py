@@ -20,8 +20,9 @@ import timeit
 __author__ = "Christian Mikovits"
 
 GRIDFILE = '/data/projects/PA3C3/EPICOKS15/A_Infos/Grid info/OKS15_AT_geodata_new.txt'
-DLYDIR = '/data/projects/PA3C3/EPICOKS15/SZEN'
-DLYDIRMOD = '/data/projects/PA3C3/EPICOKS15/SZENMODTEST'
+DLYDIR = '/data/projects/PA3C3/EPICOKS15/ICHEC45_new'
+DLYDIRMOD = '/data/projects/PA3C3/EPICOKS15/ICHEC45_new_FH'
+#BBOX = [48.18, 13.78, 48.36, 14.11]
 BBOX = [0, 0, 100, 100]  # [48.18, 13.78, 48.36, 14.11]
 WORKERS = 16
 
@@ -325,17 +326,47 @@ def itergrid(csvr):
     dlycsv = dlycsv.drop(columns=['date'])
     dlycsv = dlycsv.replace(np.nan, '', regex=True)
     # drop index col
-    dlycsv = dlycsv.set_index(0)
+    #dlycsv = dlycsv.set_index(0)
     # write the modifications to a new directory
     dlyfnmod = os.path.join(DLYDIRMOD, csvr['Identity'] + '.dly')
     # dlycsv.to_csv(dlyfnmod, sep='\t', header=None, index=False)
+    
+    lastvals = dlycsv[9].values
+    #dlycsv[8] = dlycsv[8].astype(str) + ' ' + dlycsv[9].astype(str)
+    dlycsv = dlycsv.drop(columns=[9])
+    #print(dlycsv.head(n=24))
+    
+    colspaces = [6,3,3,5,4,4,4,5,5]
+    with open(dlyfnmod, 'w') as fo:
+        dfAsString = dlycsv.to_string(header=False, index=False, col_space=colspaces)
+        fo.write(dfAsString)
+        
+    # open the file
+    with open(dlyfnmod, 'r') as original:
+    # get all file content into a variable
+        allLines = original.readlines()
 
-    with open(dlyfnmod, 'w') as fo:
-        fo.write(dlycsv.__repr__())
-    with open(dlyfnmod, 'r') as fi:
-        data = fi.read().splitlines(True)
-    with open(dlyfnmod, 'w') as fo:
-        fo.writelines(data[2:])
+    # open the the same file in write mode
+    modifyFile = open(dlyfnmod, 'w')
+    
+    # modify first line of the data
+    for i in range(0, len(lastvals)):
+        if lastvals[i]:
+            #print(i)
+            allLines[i] = allLines[i].rstrip() + " " + str(lastvals[i]) +"\n"
+        modifyFile.write(allLines[i])
+
+
+    # Iterate all lines and write into the file
+    #for i in allLines:
+    #    modifyFile.write(i)
+    modifyFile.close()
+    #with open(dlyfnmod, 'w') as fo:
+    #    fo.write(dlycsv.__repr__())
+    #with open(dlyfnmod, 'r') as fi:
+    #    data = fi.read().splitlines(True)
+    #with open(dlyfnmod, 'w') as fo:
+    #    fo.writelines(data[2:])
     print('written file', dlyfnmod)
     #print("The time difference is :", timeit.default_timer() - starttime)
 

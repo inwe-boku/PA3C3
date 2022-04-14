@@ -558,7 +558,7 @@ def _calc_taud(w, aod700, p):
     # set up nan-tolerant masks
     aod700_lt_0p05 = np.full_like(aod700, False, dtype='bool')
     np.less(aod700, 0.05, where=~np.isnan(aod700), out=aod700_lt_0p05)
-    aod700_mask = np.array([aod700_lt_0p05, ~aod700_lt_0p05], dtype=np.int)
+    aod700_mask = np.array([aod700_lt_0p05, ~aod700_lt_0p05], dtype=int)
 
     # create tuples of coefficients for
     # aod700 < 0.05, aod700 >= 0.05
@@ -677,23 +677,6 @@ def _to_centered_series(vals, idx, samples_per_window):
                   constant_values=np.nan)
     shift = samples_per_window // 2  # align = 'center' only
     return pd.Series(index=idx, data=vals).shift(shift)
-
-
-def _get_sample_intervals(times, win_length):
-    """ Calculates time interval and samples per window for Reno-style clear
-    sky detection functions
-    """
-    deltas = np.diff(times.values) / np.timedelta64(1, '60s')
-
-    # determine if we can proceed
-    if times.inferred_freq and len(np.unique(deltas)) == 1:
-        sample_interval = times[1] - times[0]
-        sample_interval = sample_interval.seconds / 60  # in minutes
-        samples_per_window = int(win_length / sample_interval)
-        return sample_interval, samples_per_window
-    else:
-        raise NotImplementedError('algorithm does not yet support unequal '
-                                  'times. consider resampling your data.')
 
 
 def _clear_sample_index(clear_windows, samples_per_window, align, H):
@@ -849,8 +832,8 @@ def detect_clearsky(measured, clearsky, times=None, window_length=10,
     else:
         clear = clearsky
 
-    sample_interval, samples_per_window = _get_sample_intervals(times,
-                                                                window_length)
+    sample_interval, samples_per_window = \
+        tools._get_sample_intervals(times, window_length)
 
     # generate matrix of integers for creating windows with indexing
     H = hankel(np.arange(samples_per_window),
