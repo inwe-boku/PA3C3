@@ -6,7 +6,7 @@ import os
 import xarray as xr
 import numpy as np
 import datetime
-
+import warnings
 import pyproj
 import geopandas as gpd
 import pandas as pd
@@ -20,6 +20,7 @@ import pvlib
 #from topocalc.viewf import viewf
 from osgeo import gdal
 import calendar
+from calendar import isleap
 # import pycrs
 
 import rasterio.features
@@ -37,7 +38,11 @@ DEFAULTPATH = os.path.join('exampledata')
 
 # settings
 pd.options.mode.chained_assignment = None  # default='warn'
-
+pd.set_option('mode.chained_assignment', None)
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.expand_frame_repr', False)
+pd.set_option('max_colwidth', None)
 
 def calc_ccca_xy(nd, point):
     """
@@ -201,7 +206,8 @@ def areaselection():
     geoms = gpd_polygonized_raster.buffer(0)
     geoms = gpd.GeoDataFrame.from_features(geoms)
     gpd_polygonized_raster = gpd.GeoDataFrame(pd.concat(
-        [geoms, gpd_polygonized_raster[['landuse', 'lujson']]], axis=1), crs=gpd_polygonized_raster.crs)
+        [geoms, gpd_polygonized_raster[['landuse', 'lujson']]], axis=1))
+    gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs, allow_override = True)
 
     # landuse selection
     if dbg:
@@ -212,7 +218,7 @@ def areaselection():
                                cmp='none', vals=config['landuse']['free'])
     # aggregation of features
     lupolys = lupolys.dissolve(by='landuse')
-    lupolys = lupolys.explode()
+    lupolys = lupolys.explode(index_parts=True)
     lupolys = lupolys.drop(columns=['lujson'])
 
     # area calculation & selection
@@ -367,23 +373,24 @@ def nan_helper(y):
 
     return(np.isnan(y), lambda z: z.nonzero()[0])
 
-
-def ghid2ghih(ddata, location):
-    i = 0
+def hourly_solarangles(location, leap=False):
     data = pd.DataFrame()
+    year = 1999
+    if leap:
+        year = 2000
+
+    sd = datetime.datetime(year, 1, 1)
+    ed = datetime.datetime(year, 12, 31)
+    dates = pd.date_range(
+        start=sd, end=ed, freq='D', tz=config['ccca']['tz'])
+    ddata = pd.DataFrame(dates, columns=['date'])
     for idx, row in ddata.iterrows():
-        # raw data is in W/m2 -> this is meteorological mean data per hour and day, have to multiply by 24
-        dval = row[0] * 24
-        print(row[0], dval)
-        date = idx
-        # sunset azimuth
-        settime = rs.sunset_time(location, date)
+        settime = rs.sunset_time(location, row['date'])
         solar_position = location.get_solarposition(settime)
         w_s = solar_position['azimuth'].values[0]
-
         # hourly azimuth
         datetimes = pd.date_range(
-            start=date + datetime.timedelta(hours=0.5), end=date + datetime.timedelta(hours=23.5), freq='H', tz=config['ccca']['tz'])
+            start=row['date'] + datetime.timedelta(hours=0.5), end=row['date'] + datetime.timedelta(hours=23.5), freq='H', tz=config['ccca']['tz'])
         solar_position = location.get_solarposition(datetimes)
         # azimuth of sun
         w_h = np.around(solar_position['azimuth'].values, decimals=2)
@@ -391,22 +398,84 @@ def ghid2ghih(ddata, location):
         z_h = np.around(solar_position['zenith'].values, decimals=2)
         z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
         cos_z_h = np.cos(np.deg2rad(z_h))
-        # cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
+        cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
 
         # daily to hourly values
+        # print(config['ccca'])
         ratio = rs.rad_d2h(w_s, w_h, config['ccca']['downscale'])
         # normalize
         ratio = ratio*1/(sum(ratio))
-        # ratio = np.roll(ratio, 1)
-        hvalues = np.around(dval*ratio, decimals=2)
-        tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
+        ratio = np.roll(ratio, 1)
+        # hvalues = np.around(dval*ratio, decimals=2)
+        tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio], axis=1)
         hdata = pd.DataFrame(data=tempdata, index=datetimes,
-                             columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
-        #print(hdata.head(n=24))
-        #print(data.head(n=24))
+                             columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio'])
         data = pd.concat([data, hdata])
-        i += 1
+        # i += 1
     return(data)
+
+def ghid2ghih(ddata, location):
+    years = ddata.index.year.unique()
+    #print(years)
+    hvals = hourly_solarangles(location, leap=False)
+    lhvals = hourly_solarangles(location, leap=True)
+
+    hdata = pd.DataFrame()
+    cl = 0
+    for y in years:
+        if isleap(y):
+            lhvals.index = lhvals.index.map(lambda x: x.replace(year=int(y)))
+            hdata = pd.concat([hdata, lhvals])
+        else:
+            hvals.index = hvals.index.map(lambda x: x.replace(year=int(y)))
+            hdata = pd.concat([hdata, hvals])
+
+    dvals = ddata[0].values * 24 #1000 / 3.6
+    hvals = np.repeat(dvals, 24)
+
+    hdata['ghi'] = hvals * hdata.ratio
+    #et = datetime.time()
+    return(hdata)
+
+#def ghid2ghih(ddata, location):
+#    i = 0
+#    data = pd.DataFrame()
+#    for idx, row in ddata.iterrows():
+#        # raw data is in W/m2 -> this is meteorological mean data per hour and day, have to multiply by 24
+#        dval = row[0] * 24
+#        #print(row[0], dval)
+#        date = idx
+#        # sunset azimuth
+#        settime = rs.sunset_time(location, date)
+#        solar_position = location.get_solarposition(settime)
+#        w_s = solar_position['azimuth'].values[0]
+#
+#        # hourly azimuth
+#        datetimes = pd.date_range(
+#            start=date + datetime.timedelta(hours=0.5), end=date + datetime.timedelta(hours=23.5), freq='H', tz=config['ccca']['tz'])
+#        solar_position = location.get_solarposition(datetimes)
+#        # azimuth of sun
+#        w_h = np.around(solar_position['azimuth'].values, decimals=2)
+#        # zenith of sun
+#        z_h = np.around(solar_position['zenith'].values, decimals=2)
+#        z_h_a = np.around(solar_position['apparent_zenith'].values, decimals=2)
+#        cos_z_h = np.cos(np.deg2rad(z_h))
+#        # cos_z_h = np.where(cos_z_h > 0.08, cos_z_h, 1)
+#
+#        # daily to hourly values
+#        ratio = rs.rad_d2h(w_s, w_h, config['ccca']['downscale'])
+#        # normalize
+#        ratio = ratio*1/(sum(ratio))
+#        # ratio = np.roll(ratio, 1)
+#        hvalues = np.around(dval*ratio, decimals=2)
+#        tempdata = np.stack([w_h, z_h, z_h_a, cos_z_h, ratio, hvalues], axis=1)
+#        hdata = pd.DataFrame(data=tempdata, index=datetimes,
+#                             columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'ghi'])
+#        #print(hdata.head(n=24))
+#        #print(data.head(n=24))
+#        data = pd.concat([data, hdata])
+#        i += 1
+#    return(data)
 
 
 def ghi2dni(data, model='disc'):
@@ -576,7 +645,7 @@ def gethorizon(points):
                         round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
         res = json.dumps(res)
         # print(res)
-        points.at[idx, 'horizon'] = [res]
+        points.at[idx, 'horizon'] = res
     return(points)
 
 
@@ -621,6 +690,7 @@ def dhidni_horizonadaption(hdata, prow):
     numangles = np.arange(-180, 180, config['pvmod']['numangles'])
     for hidx, hrow in hdata.iterrows():
         # set the direct normal radiation to zero if sun is behind/below obstacle
+        #print(hrow)
         if (hrow['dni'] > 0):
             # find the angle closest to the hourly azimuth of the sun (w_h)
             #print("below sun")
@@ -633,25 +703,31 @@ def dhidni_horizonadaption(hdata, prow):
     svf = skyviewfactor(hangles)
     # print(svf)
     hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
-    print(hdata.head(144))
+    #print(hdata.head(144))
     return(hdata)
 
 
 def simpvsystems(hdata, prow):
     result = {}
-    for pvsys in config['pvsystem'].keys():
-
-        print(pvsys)
-        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsys]['distance'],
-                                                         config['pvsystem'][pvsys]['height'],
-                                                         config['pvsystem'][pvsys]['tilt'])
-        mcsys = pvsystem(pvsys, pvlib.location.Location(
+    print(config['pvsystem'])
+    for pvsyskey in config['pvsystem'].keys():
+        
+        pvsys = config['pvsystem'][pvsyskey]
+        #print('pvsys: ',pvsys)
+        [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsyskey]['distance'],
+                                                         config['pvsystem'][pvsyskey]['height'],
+                                                         config['pvsystem'][pvsyskey]['tilt'])
+        mcsys = pvsystem(pvsyskey, pvlib.location.Location(
             prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
+        print(hdata.head(144))
+        warnings.filterwarnings(action='ignore', category=RuntimeWarning, module='pvlib.clearsky', lineno=182)
         mcsim = mcsys.run_model(hdata)
+        print('after')
         # with pd.option_context('display.max_rows', None):
         res = mcsim.results.ac
+        #print(res.head())
         res[res < 0] = 0
-        result[pvsys] = res
+        result[pvsyskey] = res
     return(result)
 
 
@@ -748,7 +824,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         raise typer.Exit()
 
     if (config['files']['hornc'] and config['files']['hornc'].is_file()):
-        print("x")
+        print("dont't now what that is")
     elif config['files']['hornc']:
         message = typer.style(str(config['files']['hornc']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
@@ -807,7 +883,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     # print(mcsim.results)
     # statistics for hdata
 
-    print(result)
+    #print(result)
     exit(0)
     pvstatistics(result)
     print(result)

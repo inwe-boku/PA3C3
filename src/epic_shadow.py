@@ -252,7 +252,6 @@ def itergrid(csvr):
 
     hdata = ghid2ghih(dlycsv, location)
     hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
-    
     pvsystem = config['pvsystem'][0]
     #print(pvsystem)
 

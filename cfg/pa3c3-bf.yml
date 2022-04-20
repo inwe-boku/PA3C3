@@ -3,6 +3,7 @@ ccca:
   timeframe: 1 # in years
   crs: "epsg:4326"
   tz: "UTC"
+  downscale: "liu"
 
 landuse:
   # land use fields available for PV
