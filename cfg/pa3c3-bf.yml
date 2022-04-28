@@ -61,7 +61,7 @@ landuse:
   minarea: 9999
   mincompactness: 0.22 #0.22
 
-  points_per_ha: 0.2
+  points_per_ha: 3
 
 pvmod:
   numangles: 30 # 360/12

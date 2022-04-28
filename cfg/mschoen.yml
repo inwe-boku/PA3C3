@@ -1,9 +1,9 @@
 ccca:
-  startyears: [2000] #, 2030, 2045]
-  timeframe: 15 # in years
+  startyears: [2015, 2045]
+  timeframe: 5 # in years
   crs: "epsg:4326"
   tz: "UTC"
-  downscale: "garg"
+  downscale: "liu"
 
 landuse:
   # land use fields available for PV
@@ -24,7 +24,7 @@ landuse:
 
 pvmod:
   numangles: 30 # 360/12
-  hmodel: "disc"
+  hmodel: "erbs"
 
 # gis defaults
 gis:
