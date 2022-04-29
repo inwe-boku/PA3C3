@@ -737,17 +737,17 @@ def simpvsystems(hdata, prow):
 
 
 def pvstatistics(hpv):
-    # long-term average as hour of year
-    hofy_ltavg = hpv.groupby((hpv['datetime'].dt.dayofyear - 1)* 24 + hpv['datetime'].dt.hour).mean()
-    
-    # average day per month
+    # long-term quantile values per hour of year over all years
+    # this returns a list (quantiles) of dataframes 
+    hofy_ltavg = hpv.groupby((hpv['datetime'].dt.dayofyear - 1)* 24 + hpv['datetime'].dt.hour).quantile(q=[0,0.1,0.25,0.5,0.75,0.9,1])
+    # long-term quantile values per hour of year over all years per month 
+    # this returns a list (quantiles) of dataframes 
     months = hpv['datetime'].dt.month.unique()
+    mdat = {}
     for m in months:
-        mdat = hpv[hpv['datetime'].dt.month == m].groupby(hpv['datetime'].dt.hour).mean()
-        print(mdat)
-        
-    hofy_ltavg = hpv.groupby((hpv['datetime'].dt.dayofyear - 1)* 24 + hpv['datetime'].dt.hour).mean()
-    
+        mmdat = hpv[hpv['datetime'].dt.month == m].groupby(hpv['datetime'].dt.hour).quantile(q=[0,0.1,0.25,0.5,0.75,0.9,1])
+        #mdat = pd.concat([mdat, mmdat])
+    print(mmdat)
     exit(0)
     #print(hPVres.head(n=48))
     #print(hPVres.tail(n=48))
