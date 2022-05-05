@@ -15,13 +15,14 @@ import cftime
 from shapely.geometry import Point, Polygon, box
 import matplotlib.pyplot as plot
 import pvlib
-#from topocalc.horizon import horizon
-#from topocalc.gradient import gradient_d8
-#from topocalc.viewf import viewf
+# from topocalc.horizon import horizon
+# from topocalc.gradient import gradient_d8
+# from topocalc.viewf import viewf
 from osgeo import gdal
 import calendar
 from calendar import isleap
 # import pycrs
+from statistics import NormalDist
 
 import rasterio.features
 from rasterio.features import shapes
@@ -43,6 +44,7 @@ pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.expand_frame_repr', False)
 pd.set_option('max_colwidth', None)
+
 
 def calc_ccca_xy(nd, point):
     """
@@ -207,7 +209,8 @@ def areaselection():
     geoms = gpd.GeoDataFrame.from_features(geoms)
     gpd_polygonized_raster = gpd.GeoDataFrame(pd.concat(
         [geoms, gpd_polygonized_raster[['landuse', 'lujson']]], axis=1))
-    gpd_polygonized_raster = gpd_polygonized_raster.set_crs(rastercrs, allow_override = True)
+    gpd_polygonized_raster = gpd_polygonized_raster.set_crs(
+        rastercrs, allow_override=True)
 
     # landuse selection
     if dbg:
@@ -311,7 +314,7 @@ def gendates365(startyears, ylength):
 
 
 def cccapoints(nd, points, daterange):
-    y = daterange.year.unique().min() #startyear
+    y = daterange.year.unique().min()  # startyear
     points = points.to_crs(config['ccca']['crs'])
     cccadict = {}
     for idx, row in points.iterrows():
@@ -320,7 +323,7 @@ def cccapoints(nd, points, daterange):
 
         # get x and y position in the netcdf from lat lon point
         nx, ny = calc_ccca_xy(nd, row)
-        #nxnykey = str(nx)+'-'+str(ny)
+        # nxnykey = str(nx)+'-'+str(ny)
         strnx = str(nx)
         strny = str(ny)
         points.loc[idx, 'nx'] = strnx
@@ -331,7 +334,8 @@ def cccapoints(nd, points, daterange):
                 # fill info in dictionary, geom and altitude are used to aproximate for daily to hourly downscaling
                 cccadict[strnx][strny] = {}
                 cccadict[strnx][strny]['geometry'] = row.geometry
-                cccadict[strnx][strny]['altitude'] = int(json.loads(row.altitude)[0])
+                cccadict[strnx][strny]['altitude'] = int(
+                    json.loads(row.altitude)[0])
                 cccadict[strnx][strny]['drsds'] = {}
     return(points, cccadict)
 
@@ -369,6 +373,7 @@ def nan_helper(y):
     """
 
     return(np.isnan(y), lambda z: z.nonzero()[0])
+
 
 def hourly_solarangles(location, leap=False):
     data = pd.DataFrame()
@@ -411,8 +416,9 @@ def hourly_solarangles(location, leap=False):
         # i += 1
     return(data)
 
+
 def ghid2ghih(ddata, location):
-    
+
     # crosscheck if daily data consists of leapday, if not ignore leap
     checkleap = True
     if len(ddata) % 365 == 0:
@@ -431,14 +437,14 @@ def ghid2ghih(ddata, location):
             hvals.index = hvals.index.map(lambda x: x.replace(year=int(y)))
             hdata = pd.concat([hdata, hvals])
 
-    dvals = ddata[0].values * 24 #1000 / 3.6
+    dvals = ddata[0].values * 24  # 1000 / 3.6
     hvals = np.repeat(dvals, 24)
 
     hdata['ghi'] = hvals * hdata.ratio
-    #et = datetime.time()
+    # et = datetime.time()
     return(hdata)
 
-#def ghid2ghih(ddata, location):
+# def ghid2ghih(ddata, location):
 #    i = 0
 #    data = pd.DataFrame()
 #    for idx, row in ddata.iterrows():
@@ -550,7 +556,7 @@ def pvmodeltest():
                                      spectral_model='no_loss')
     mc.run_model(weather)
     # , 'display.max_columns', None):
-    #with pd.option_context('display.max_rows', None):
+    # with pd.option_context('display.max_rows', None):
     #    print(mc.results.ac)
 
 
@@ -569,7 +575,7 @@ def pvsystemtest():
                                      modules_per_string=10, strings=2)
     systemarray = pvlib.pvsystem.PVSystem(arrays=[array_one],  # , array_two],
                                           inverter_parameters=pinverter)
-    #print(systemarray)
+    # print(systemarray)
     weather = pvlib.iotools.get_pvgis_tmy(location.latitude, location.longitude,
                                           map_variables=True)[0]
     mc = pvlib.modelchain.ModelChain(systemarray, location, aoi_model='no_loss',
@@ -651,14 +657,14 @@ def gethorizon(points):
 
 
 def getcccadata(nd, points):
-    #dates360 = gendates360(
+    # dates360 = gendates360(
     #    config['ccca']['startyears'], config['ccca']['timeframe'])
     dates365 = gendates365(
         config['ccca']['startyears'], config['ccca']['timeframe'])
     # for other files we do not need dates360
 
-    #dates360 = dates365
-    #cccadict = {}
+    # dates360 = dates365
+    # cccadict = {}
     for year, daterange in dates365.items():
         daterange365 = dates365[year]
         points, cccadict = cccapoints(nd, points, daterange365)
@@ -683,7 +689,7 @@ def getcccadata(nd, points):
 
                     # daily to hourly
                     hdata = ghid2ghih(ddata, location)
-                    #hdata['geometry'] = geom
+                    # hdata['geometry'] = geom
                     # DNI+DHI hourly
                     hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
                     hrsds[nx][ny][year] = hdata
@@ -695,10 +701,10 @@ def dhidni_horizonadaption(hdata, prow):
     numangles = np.arange(-180, 180, config['pvmod']['numangles'])
     for hidx, hrow in hdata.iterrows():
         # set the direct normal radiation to zero if sun is behind/below obstacle
-        #print(hrow)
+        # print(hrow)
         if (hrow['dni'] > 0):
             # find the angle closest to the hourly azimuth of the sun (w_h)
-            #print("below sun")
+            # print("below sun")
             idx = (np.abs(numangles - hrow['w_h'])).argmin()
             if phors[idx] < hrow['z_h']:
                 hdata.at[hidx, 'dni_orig'] = hdata.at[hidx, 'dni']
@@ -708,7 +714,7 @@ def dhidni_horizonadaption(hdata, prow):
     svf = skyviewfactor(hangles)
     # print(svf)
     hdata.at[hidx, 'dhi_orig'] = hdata.at[hidx, 'dhi']
-    #print(hdata.head(144))
+    # print(hdata.head(144))
     return(hdata)
 
 
@@ -716,51 +722,73 @@ def simpvsystems(hdata, prow):
     result = {}
     # print(config['pvsystem'])
     for pvsyskey in config['pvsystem'].keys():
-        
+
         pvsys = config['pvsystem'][pvsyskey]
-        #print('pvsys: ',pvsys)
+        # print('pvsys: ',pvsys)
         [rDHI, rShade, rTransp] = relative_diffuse_ratio(config['pvsystem'][pvsyskey]['distance'],
                                                          config['pvsystem'][pvsyskey]['height'],
                                                          config['pvsystem'][pvsyskey]['tilt'])
         mcsys = pvsystem(pvsyskey, pvlib.location.Location(
             prow['geometry'].y, prow['geometry'].x, altitude=json.loads(prow['altitude'])[0]))
-        #print(hdata.head(144))
-        warnings.filterwarnings(action='ignore', category=RuntimeWarning, module='pvlib.clearsky', lineno=182)
+        # print(hdata.head(144))
+        warnings.filterwarnings(
+            action='ignore', category=RuntimeWarning, module='pvlib.clearsky', lineno=182)
         mcsim = mcsys.run_model(hdata)
-        #print('after')
+        # print('after')
         # with pd.option_context('display.max_rows', None):
         res = mcsim.results.ac
-        #print(res.head())
+        # print(res.head())
         res[res < 0] = 0
         result[pvsyskey] = res
     return(result)
 
 
+def mean_confidence_interval(data, confidence=0.95, decimals=0):
+    dist = NormalDist.from_samples(data)
+    z = NormalDist().inv_cdf((1 + confidence) / 2.)
+    h = dist.stdev * z / ((len(data) - 1) ** .5)
+    if decimals == 0:
+        return([int(round(dist.mean, decimals)), int(round(dist.mean - h, decimals)), int(round(dist.mean + h, decimals))])
+    else:
+        return([round(dist.mean, decimals), round(dist.mean - h, decimals), round(dist.mean + h, decimals)])
+
+
 def pvstatistics(hpv):
     # long-term quantile values per hour of year over all years
-    # this returns a list (quantiles) of dataframes 
-    hofy_ltavg = hpv[['ghi', 'dni', 'dhi', 'kWh']].groupby((hpv['datetime'].dt.dayofyear - 1)* 24 + hpv['datetime'].dt.hour).quantile(q=[0,0.1,0.25,0.5,0.75,0.9,1])
-    sydat = hpv['kWh'].sum()
-    print(sydat)
-    # long-term quantile values per hour of year over all years per month 
-    # this returns a list (quantiles) of dataframes 
+    # this returns a list (quantiles) of dataframes
+    hofy_ltavg = hpv[['ghi', 'dni', 'dhi', 'Wh']].groupby(
+        (hpv['datetime'].dt.dayofyear - 1) * 24 + hpv['datetime'].dt.hour).quantile(q=[0, 0.1, 0.25, 0.5, 0.75, 0.9, 1])
+    # long-term average yearly production
+    ymean = hpv[['ghi', 'dni', 'dhi', 'Wh']].groupby(
+        hpv['datetime'].dt.year).sum()/1000
+    mghi = mean_confidence_interval(ymean['ghi'], confidence=0.95, decimals=0)
+    mdni = mean_confidence_interval(ymean['dni'], confidence=0.95, decimals=0)
+    mdhi = mean_confidence_interval(ymean['dhi'], confidence=0.95, decimals=0)
+    mkWh = mean_confidence_interval(ymean['Wh'], confidence=0.95, decimals=0)
+
     months = hpv['datetime'].dt.month.unique()
     mdat = {}
     smdat = []
     for m in months:
-        mmdat = hpv[hpv['datetime'].dt.month == m][['ghi', 'dni', 'dhi', 'kWh']].groupby(hpv['datetime'].dt.hour).quantile(q=[0,0.1,0.25,0.5,0.75,0.9,1])
+        # hourly quantile values for an average day for each month
+        mmdat = hpv[hpv['datetime'].dt.month == m][['ghi', 'dni', 'dhi', 'Wh']].groupby(
+            hpv['datetime'].dt.hour).quantile(q=[0, 0.1, 0.25, 0.5, 0.75, 0.9, 1])
         mdat[m] = mmdat
-        print(type(mmdat))
-        print(mmdat[0.5])
-        smdat.append(mmdat[['kWh']].sum().values[0].round(2))
-    print(smdat)
+        mmean = hpv[hpv['datetime'].dt.month == m][['ghi', 'dni', 'dhi', 'Wh']].groupby(
+            hpv['datetime'].dt.year).sum()/1000
+        print(mmean)
+        mghi = mean_confidence_interval(mmean['ghi'], confidence=0.95, decimals=0)
+        mdni = mean_confidence_interval(mmean['dni'], confidence=0.95, decimals=0)
+        mdhi = mean_confidence_interval(mmean['dhi'], confidence=0.95, decimals=0)
+        mkWh = mean_confidence_interval(mmean['Wh'], confidence=0.95, decimals=0)
+        print(mkWh)
     exit(0)
-    
+
     # how to save nested geodata?
-    
-    
-    #print(hPVres.head(n=48))
-    #print(hPVres.tail(n=48))
+
+    # print(hPVres.head(n=48))
+    # print(hPVres.tail(n=48))
+
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
          t_areaname: str = typer.Option("BruckSmall", "--area", "-a"),
@@ -822,7 +850,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         # dissolve
         area['tmpdis'] = 1
         area = area.dissolve(by='tmpdis')
-        #area = area.drop(columns=['tmpdis'])
+        # area = area.drop(columns=['tmpdis'])
     else:
         message = typer.style(str(config['files']['area']), fg=typer.colors.WHITE,
                               bg=typer.colors.RED, bold=True) + " does not exist"
@@ -894,7 +922,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     hrsds, points = getcccadata(nd, points)
     if dbg:
         print('Number of points:', len(points))
-        
+
     # open HDF Store
     store = pd.HDFStore(path.joinpath(Path.home(),
                                       'pa3c3out',
@@ -906,14 +934,19 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         strny = prow['ny']
         for y in hrsds[strnx][strny]:
             # reduction of radiation (direct and indirect) according to horizon information
-            hrsds[strnx][strny][y] = dhidni_horizonadaption(hrsds[strnx][strny][y], prow)
+            hrsds[strnx][strny][y] = dhidni_horizonadaption(
+                hrsds[strnx][strny][y], prow)
             # note: DNI can be bigger than GHI, especially if the sun is near the horizon. Looks awkward, should be no problem
-            #hrsds[strnx][strny][y]['datetime'] = hrsds[strnx][strny][y].index
-            res = pd.DataFrame.from_dict(simpvsystems(hrsds[strnx][strny][y], prow))
-            hrsds[strnx][strny][y]['kWh'] = res
-            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].reset_index(level=0)
-            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].rename(columns={'index': 'datetime'})
-            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].drop(columns = ['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'kt', 'dni_orig', 'dhi_orig'])
+            # hrsds[strnx][strny][y]['datetime'] = hrsds[strnx][strny][y].index
+            res = pd.DataFrame.from_dict(
+                simpvsystems(hrsds[strnx][strny][y], prow))
+            hrsds[strnx][strny][y]['Wh'] = res
+            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].reset_index(
+                level=0)
+            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].rename(
+                columns={'index': 'datetime'})
+            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].drop(
+                columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'kt', 'dni_orig', 'dhi_orig'])
             pvstatistics(hrsds[strnx][strny][y])
 
         # store[str(prow['geometry'].y) + "-" +
