@@ -765,6 +765,9 @@ def pvstatistics(hpv):
     mdni = mean_confidence_interval(ymean['dni'], confidence=0.95, decimals=0)
     mdhi = mean_confidence_interval(ymean['dhi'], confidence=0.95, decimals=0)
     mkWh = mean_confidence_interval(ymean['Wh'], confidence=0.95, decimals=0)
+    ymean = pd.DataFrame(data=np.array([mghi, mdni, mdhi, mkWh]), index=[
+                         'ghi', 'dni', 'dhi', 'kWh'], columns=['mean', 'lcb95', 'ucb95'])
+    print(ymean)
 
     months = hpv['datetime'].dt.month.unique()
     mdat = {}
@@ -774,18 +777,12 @@ def pvstatistics(hpv):
         mmdat = hpv[hpv['datetime'].dt.month == m][['ghi', 'dni', 'dhi', 'Wh']].groupby(
             hpv['datetime'].dt.hour).quantile(q=[0, 0.1, 0.25, 0.5, 0.75, 0.9, 1])
         mdat[m] = mmdat
-        mmean = hpv[hpv['datetime'].dt.month == m][['ghi', 'dni', 'dhi', 'Wh']].groupby(
+        mmean = hpv[hpv['datetime'].dt.month == m][['Wh']].groupby(
             hpv['datetime'].dt.year).sum()/1000
-        print(mmean)
-        mghi = mean_confidence_interval(mmean['ghi'], confidence=0.95, decimals=0)
-        mdni = mean_confidence_interval(mmean['dni'], confidence=0.95, decimals=0)
-        mdhi = mean_confidence_interval(mmean['dhi'], confidence=0.95, decimals=0)
-        mkWh = mean_confidence_interval(mmean['Wh'], confidence=0.95, decimals=0)
-        print(mkWh)
-    exit(0)
-
-    # how to save nested geodata?
-
+        mkWh = mean_confidence_interval(
+            mmean['Wh'], confidence=0.95, decimals=2)
+        smdat.append(mkWh)
+    mmean = pd.DataFrame(data=smdat, index=pd.Index(np.arange(1,13), name='month'), columns=['mean', 'lcb95', 'ucb95'])
     # print(hPVres.head(n=48))
     # print(hPVres.tail(n=48))
 
