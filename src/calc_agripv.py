@@ -754,37 +754,56 @@ def mean_confidence_interval(data, confidence=0.95, decimals=0):
 
 
 def pvstatistics(hpv):
+    # to be sure get rid of leap days, only 365 days per year are recognized
+    hpv = hpv[~((hpv['datetime'].dt.month == 2) &
+                (hpv['datetime'].dt.day == 29))]
+    hpv['hour'] = np.tile(np.array(range(1, 8761)),
+                          len(hpv['datetime'].dt.year.unique()))
+    hourgroup = hpv[['ghi', 'dni', 'dhi', 'Wh']].groupby(hpv['hour'])
+
     # long-term quantile values per hour of year over all years
     # this returns a list (quantiles) of dataframes
-    hofy_ltavg = hpv[['ghi', 'dni', 'dhi', 'Wh']].groupby(
-        (hpv['datetime'].dt.dayofyear - 1) * 24 + hpv['datetime'].dt.hour).quantile(q=[0, 0.1, 0.25, 0.5, 0.75, 0.9, 1])
+    yhdat = hourgroup.quantile(q=[0, 0.25, 0.5, 0.75, 1])
+    # long-term mean and confidence interval (95%) values per hour of year over all years
+    # this returns an array with [mean, lowerbound, upperbound] per hourofyear
+    yhmean = hourgroup.apply(lambda x: mean_confidence_interval(
+        x['Wh'], confidence=0.95, decimals=2))
     # long-term average yearly production
     ymean = hpv[['ghi', 'dni', 'dhi', 'Wh']].groupby(
         hpv['datetime'].dt.year).sum()/1000
-    mghi = mean_confidence_interval(ymean['ghi'], confidence=0.95, decimals=0)
-    mdni = mean_confidence_interval(ymean['dni'], confidence=0.95, decimals=0)
-    mdhi = mean_confidence_interval(ymean['dhi'], confidence=0.95, decimals=0)
+    mghi = mean_confidence_interval(
+        ymean['ghi'], confidence=0.95, decimals=0)
+    mdni = mean_confidence_interval(
+        ymean['dni'], confidence=0.95, decimals=0)
+    mdhi = mean_confidence_interval(
+        ymean['dhi'], confidence=0.95, decimals=0)
     mkWh = mean_confidence_interval(ymean['Wh'], confidence=0.95, decimals=0)
-    ymean = pd.DataFrame(data=np.array([mghi, mdni, mdhi, mkWh]), index=[
-                         'ghi', 'dni', 'dhi', 'kWh'], columns=['mean', 'lcb95', 'ucb95'])
-    print(ymean)
+    ysmean = pd.DataFrame(data=np.array([mghi, mdni, mdhi, mkWh]), index=[
+        'ghi', 'dni', 'dhi', 'kWh'], columns=['mean', 'lcb95', 'ucb95'])
 
     months = hpv['datetime'].dt.month.unique()
-    mdat = {}
+    mhdat = {}
+    mhmean = {}
     smdat = []
     for m in months:
         # hourly quantile values for an average day for each month
-        mmdat = hpv[hpv['datetime'].dt.month == m][['ghi', 'dni', 'dhi', 'Wh']].groupby(
-            hpv['datetime'].dt.hour).quantile(q=[0, 0.1, 0.25, 0.5, 0.75, 0.9, 1])
-        mdat[m] = mmdat
+        mhourgroup = hpv[hpv['datetime'].dt.month == m][[
+            'ghi', 'dni', 'dhi', 'Wh']].groupby(hpv['hour'])
+        mmdat = mhourgroup.quantile(q=[0, 0.25, 0.5, 0.75, 1])
+        mhdat[m] = mmdat
+
+        mmhmean = mhourgroup.apply(lambda x: mean_confidence_interval(
+            x['Wh'], confidence=0.95, decimals=2))
+        mhmean[m] = mmhmean
         mmean = hpv[hpv['datetime'].dt.month == m][['Wh']].groupby(
             hpv['datetime'].dt.year).sum()/1000
         mkWh = mean_confidence_interval(
             mmean['Wh'], confidence=0.95, decimals=2)
         smdat.append(mkWh)
-    mmean = pd.DataFrame(data=smdat, index=pd.Index(np.arange(1,13), name='month'), columns=['mean', 'lcb95', 'ucb95'])
-    # print(hPVres.head(n=48))
-    # print(hPVres.tail(n=48))
+    msmean = pd.DataFrame(data=smdat, index=pd.Index(
+        np.arange(1, 13), name='month'), columns=['mean', 'lcb95', 'ucb95'])
+
+    return(ysmean, yhmean, yhdat, msmean, mhmean, mhdat)
 
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -944,7 +963,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                 columns={'index': 'datetime'})
             hrsds[strnx][strny][y] = hrsds[strnx][strny][y].drop(
                 columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'kt', 'dni_orig', 'dhi_orig'])
-            pvstatistics(hrsds[strnx][strny][y])
+            [ysmean, yhmean, yhdat, msmean, mhmean, mhdat] = pvstatistics(hrsds[strnx][strny][y])
 
         # store[str(prow['geometry'].y) + "-" +
         #      str(prow['geometry'].x)] = res
