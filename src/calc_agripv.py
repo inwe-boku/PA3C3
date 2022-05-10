@@ -940,7 +940,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         print('Number of points:', len(points))
 
     # open HDF Store
-    store = pd.HDFStore(path.joinpath(Path.home(),
+    rawstore = pd.HDFStore(path.joinpath(Path.home(),
                                       'pa3c3out',
                                       'hourly_raw.hdf'))
 
@@ -964,53 +964,21 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             hrsds[strnx][strny][y] = hrsds[strnx][strny][y].drop(
                 columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'kt', 'dni_orig', 'dhi_orig'])
             [ysmean, yhmean, yhdat, msmean, mhmean, mhdat] = pvstatistics(hrsds[strnx][strny][y])
+            print(ysmean)
+            prow[str(y)+'_avg'] = ysmean['mean']['kWh']
+            prow[str(y)+'_l95'] = ysmean['lcb95']['kWh']
+            prow[str(y)+'_u95'] = ysmean['ucb95']['kWh']
+        print(prow)
+        exit(0)
+    
 
-        # store[str(prow['geometry'].y) + "-" +
-        #      str(prow['geometry'].x)] = res
-        # res.to_csv(path.joinpath(Path.home(), 'pa3c3out', str(prow['geometry'].y) + "-" +
-        #                                      str(prow['geometry'].x) + '.csv'))
+    rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
+            
 
-    store.close()
+    rawstore.close()
     exit(0)
 
-    pvstatistics(result)
-    print(result)
-    exit(0)
-    res = res * 10
-    res = res.reset_index(name='kWh')
-    # print(res.head(144))
-    res = res.set_index('index')
-    # print(res.head(144))
-    # res.to_csv('hdata.csv')
-    # res = res.rename('kWh')
-    daily = res.resample('D').sum()/1000
-    # print(daily.head(365))
-    # daily.to_csv('ddata.csv')
-    monthly = res.resample('M').sum()/1000
-
-    # monthly.to_csv('mdata.csv')
-
-    # print(hdata.head(144))
-
-    ahourly = hdata.groupby((hdata.index.dayofyear - 1) *
-                            24 + hdata.index.hour).ghi.mean()
-    # print(ahourly)
-    # ahourly.to_csv('ahourly.csv')
-
-    rad_monthly = hdata.groupby(hdata.index.month).ghi.mean()
-    # rad_monthly.to_csv('rad_monthly.csv')
-
-    amonthly = monthly.groupby(monthly.index.month).kWh.mean()
-    # amonthly.to_csv('amdata.csv')
-    print(amonthly.head(12))
-    # print(hourly)
-    # print(daily.head(365))
-
-    # output for EPIC
-
-    # hdata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'hdata.csv'))
-    # ddata = pd.DataFrame(data=ddata)
-    # ddata.to_csv(path.joinpath(Path.home(), 'pa3c3out', 'ddata.csv'))
+    
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 
