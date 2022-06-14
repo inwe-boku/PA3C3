@@ -1,6 +1,6 @@
 ccca:
-  startyears: [2015, 2045]
-  timeframe: 5 # in years
+  startyears: [1981, 2031]
+  timeframe: 10 # in years
   crs: "epsg:4326"
   tz: "UTC"
   downscale: "liu"

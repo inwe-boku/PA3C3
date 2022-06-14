@@ -31,7 +31,10 @@ from rasterio.mask import mask
 
 from pprint import pprint
 import tempfile
+import uuid
 import renspatial as rs
+
+import tabulate
 
 # constants
 
@@ -247,27 +250,28 @@ def areaselection():
     lupolys.loc[(lupolys['B_landuse'] == True) & (lupolys['B_area'] == True)
                 & (lupolys['B_compact'] == True), 'PV'] = True
     lupolys.reset_index(inplace=True)
-
+    lupolys['fid'] = lupolys.apply(lambda row: uuid.uuid4(), axis = 1)
     typer.echo(
-        f"\tCreating random points ...")
+        f"\tCreating random points: ", nl=False)
     points = rs.randompoints(
         lupolys[lupolys['PV']], config['landuse']['points_per_ha'])
     typer.echo(
-        f"finished")
+        f"%s point(s) generated" % len(points)
+    )
     typer.echo(
-        f"\taltitude ...")
+        f"\taltitude: ", nl=False)
     points = rs.samplerasterpoints(points, config['files']['dhm'],
                                    fieldname='altitude', samplemethod=1)
     typer.echo(
         f"finished")
     typer.echo(
-        f"\tslope ...")
+        f"\tslope: ", nl=False)
     points = rs.samplerasterpoints(points, config['files']['slope'],
                                    fieldname='slope', samplemethod=1)
     typer.echo(
         f"finished")
     typer.echo(
-        f"\tjoining polygons and points ...")
+        f"\tjoining polygons and points: ", nl=False)
     points['nidx'] = points.index
 
     lupolys = rs.nearestgeom(lupolys, points, neighbor=1)
@@ -275,12 +279,13 @@ def areaselection():
         points[["nidx", "altitude", "slope"]], on='nidx', how='inner').drop(columns=['nidx'])
 
     lupolys = rs.analysevector(lupolys, infield='altitude', outfield='B_altitude', op='lt',
-                               cmp='multi', vals=[2000])
+                               cmp='multi', vals=[config['landuse']['maxalt']])
     lupolys = rs.analysevector(lupolys, infield='slope', outfield='B_slope', op='lt',
-                               cmp='multi', vals=[20])
+                               cmp='multi', vals=[config['landuse']['maxslope']])
     lupolys['PV'] = False
     lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
                 & (lupolys['B_compact']) & (lupolys['B_altitude']) & (lupolys['B_slope']), 'PV'] = True
+    print(lupolys[lupolys.PV.eq(True)].shape)
     points = gpd.sjoin(
         points, lupolys[lupolys['PV']], how='left', predicate='within')
     points.drop(['altitude_left', 'nidx', 'index_right',
@@ -680,19 +685,18 @@ def getcccadata(nd, points):
                     geom.y, geom.x,
                     'UTC', altitude)
 
-                for year, daterange in dates365.items():
-                    res = get_ccca_values(nd, int(nx), int(ny), daterange)
-                    ddata = pd.DataFrame(index=daterange, data=res.rsds.values)
-                    cccadict[nx][ny]['drsds'][year] = ddata
-                    # GHI daily to GHI hourly
-                    df = pd.DataFrame(data=ddata)
+                res = get_ccca_values(nd, int(nx), int(ny), daterange)
+                ddata = pd.DataFrame(index=daterange, data=res.rsds.values)
+                cccadict[nx][ny]['drsds'][year] = ddata
+                # GHI daily to GHI hourly
+                df = pd.DataFrame(data=ddata)
 
-                    # daily to hourly
-                    hdata = ghid2ghih(ddata, location)
-                    # hdata['geometry'] = geom
-                    # DNI+DHI hourly
-                    hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
-                    hrsds[nx][ny][year] = hdata
+                # daily to hourly
+                hdata = ghid2ghih(ddata, location)
+                # hdata['geometry'] = geom
+                # DNI+DHI hourly
+                hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
+                hrsds[nx][ny][year] = hdata
     return(hrsds, points)
 
 
@@ -701,7 +705,6 @@ def dhidni_horizonadaption(hdata, prow):
     numangles = np.arange(-180, 180, config['pvmod']['numangles'])
     for hidx, hrow in hdata.iterrows():
         # set the direct normal radiation to zero if sun is behind/below obstacle
-        # print(hrow)
         if (hrow['dni'] > 0):
             # find the angle closest to the hourly azimuth of the sun (w_h)
             # print("below sun")
@@ -911,7 +914,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             f"Selecting areas")
 
     lupolys, points = areaselection()
-    # points = points[1:5]
+    points = points[1:9]
 
     # horizon calculation for each point (angle as COS)
     if dbg:
@@ -928,7 +931,6 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         Path.home(), 'pa3c3out'), 'area')
 
     points = gethorizon(points)
-    # print(points)
     # sunrise / sunset at area center
     # readNETCDF
     if dbg:
@@ -941,44 +943,69 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     # open HDF Store
     rawstore = pd.HDFStore(path.joinpath(Path.home(),
-                                      'pa3c3out',
-                                      'hourly_raw.hdf'))
+                                         'pa3c3out',
+                                         'hourly_raw.hdf'))
 
     # iterate over all points in the area
     for pidx, prow in points.iterrows():
+        #if pidx == 1: continue
         strnx = prow['nx']
         strny = prow['ny']
         for y in hrsds[strnx][strny]:
+            prow['result'][y] = {}
+            print(strnx, strny, y, pidx)
+            print(hrsds[strnx][strny][y].head(24))
             # reduction of radiation (direct and indirect) according to horizon information
+            st = datetime.datetime.now()
             hrsds[strnx][strny][y] = dhidni_horizonadaption(
                 hrsds[strnx][strny][y], prow)
+            print(hrsds[strnx][strny][y].head(24))
             # note: DNI can be bigger than GHI, especially if the sun is near the horizon. Looks awkward, should be no problem
             # hrsds[strnx][strny][y]['datetime'] = hrsds[strnx][strny][y].index
             res = pd.DataFrame.from_dict(
                 simpvsystems(hrsds[strnx][strny][y], prow))
-            hrsds[strnx][strny][y]['Wh'] = res
-            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].reset_index(
-                level=0)
-            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].rename(
-                columns={'index': 'datetime'})
-            hrsds[strnx][strny][y] = hrsds[strnx][strny][y].drop(
-                columns=['w_h', 'z_h', 'z_h_a', 'cos_z_h', 'ratio', 'kt', 'dni_orig', 'dhi_orig'])
-            [ysmean, yhmean, yhdat, msmean, mhmean, mhdat] = pvstatistics(hrsds[strnx][strny][y])
-            print(ysmean)
+            prow['results'][y]['Wh'] = res
+            #print(hrsds[strnx][strny][y].head(24))
+            #hrsds[strnx][strny][y] = hrsds[strnx][strny][y].reset_index(
+            #    level=0)
+            #hrsds[strnx][strny][y] = hrsds[strnx][strny][y].rename(
+            #    columns={'index': 'datetime'})
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['w_h'], inplace = True)
+            #except: pass
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['z_h'], inplace = True)
+            #except: pass
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['z_h_a'], inplace = True)
+            #except: pass
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['cos_z_h'], inplace = True)
+            #except: pass
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['ratio'], inplace = True)
+            #except: pass
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['kt'], inplace = True)
+            #except: pass
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['dni_orig'], inplace = True)
+            #except: pass
+            #try:
+            #    hrsds[strnx][strny][y].drop(columns=['dhi_orig'], inplace = True)
+            #except: pass
+            [ysmean, yhmean, yhdat, msmean, mhmean,
+                mhdat] = pvstatistics(hrsds[strnx][strny][y])
+            et = datetime.datetime.now()
+            delta = et-st
             prow[str(y)+'_avg'] = ysmean['mean']['kWh']
             prow[str(y)+'_l95'] = ysmean['lcb95']['kWh']
             prow[str(y)+'_u95'] = ysmean['ucb95']['kWh']
-        print(prow)
-        exit(0)
-    
-
-    rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
-            
+    print(points.to_markdown())
 
     rawstore.close()
     exit(0)
 
-    
     rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 

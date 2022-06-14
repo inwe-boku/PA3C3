@@ -19,6 +19,7 @@ import pathlib
 import urllib.parse
 import requests
 from io import StringIO
+import uuid
 
 import json
 
@@ -193,8 +194,8 @@ def nlatlon_gridpoints(polygon, resolution=100):
 def randompoints(polygons, samples_per_ha=1, crsa='epsg:6933'):
     lons = []
     lats = []
+    fids = []
     polygons.reset_index(inplace=True)
-
     for i in polygons.index:
         count = 0
         poly = polygons.loc[[i]]
@@ -206,6 +207,8 @@ def randompoints(polygons, samples_per_ha=1, crsa='epsg:6933'):
                 p = poly.centroid
                 lats.append(p.y)
                 lons.append(p.x)
+                fids.append(poly['fid'].values[0])
+
             else:
                 df = pd.DataFrame({'Latitude': [random.uniform(
                     bbox.miny, bbox.maxy)], 'Longitude': [random.uniform(bbox.minx, bbox.maxx)]})
@@ -219,12 +222,14 @@ def randompoints(polygons, samples_per_ha=1, crsa='epsg:6933'):
                     count += 1
                     lats.append(p.geometry.y)
                     lons.append(p.geometry.x)
+                    fids.append(poly['fid'].values[0])
         df = pd.DataFrame({'Latitude': lats, 'Longitude': lons})
     points = gpd.GeoDataFrame(df,
                               geometry=gpd.points_from_xy(df.Longitude,
                                                           df.Latitude),
                               crs=polygons.crs)
     points = points[['geometry']]
+    points['fid'] = fids
     return(points)
 
 
