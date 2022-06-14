@@ -250,7 +250,7 @@ def areaselection():
     lupolys.loc[(lupolys['B_landuse'] == True) & (lupolys['B_area'] == True)
                 & (lupolys['B_compact'] == True), 'PV'] = True
     lupolys.reset_index(inplace=True)
-    lupolys['fid'] = lupolys.apply(lambda row: uuid.uuid4(), axis = 1)
+    lupolys['fid'] = lupolys.apply(lambda row: uuid.uuid4(), axis=1)
     typer.echo(
         f"\tCreating random points: ", nl=False)
     points = rs.randompoints(
@@ -318,8 +318,7 @@ def gendates365(startyears, ylength):
     return(dates)
 
 
-def cccapoints(nd, points, daterange):
-    y = daterange.year.unique().min()  # startyear
+def cccapoints(nd, points):
     points = points.to_crs(config['ccca']['crs'])
     cccadict = {}
     for idx, row in points.iterrows():
@@ -335,13 +334,13 @@ def cccapoints(nd, points, daterange):
         points.loc[idx, 'ny'] = strny
         if not strnx in cccadict.keys():
             cccadict[strnx] = {}
-            if not strny in cccadict.keys():
-                # fill info in dictionary, geom and altitude are used to aproximate for daily to hourly downscaling
-                cccadict[strnx][strny] = {}
-                cccadict[strnx][strny]['geometry'] = row.geometry
-                cccadict[strnx][strny]['altitude'] = int(
-                    json.loads(row.altitude)[0])
-                cccadict[strnx][strny]['drsds'] = {}
+        if not strny in cccadict[strnx].keys():
+            # fill info in dictionary, geom and altitude are used to aproximate for daily to hourly downscaling
+            cccadict[strnx][strny] = {}
+        cccadict[strnx][strny]['geometry'] = row.geometry
+        cccadict[strnx][strny]['altitude'] = int(
+            json.loads(row.altitude)[0])
+        cccadict[strnx][strny]['drsds'] = {}
     return(points, cccadict)
 
 
@@ -672,7 +671,7 @@ def getcccadata(nd, points):
     # cccadict = {}
     for year, daterange in dates365.items():
         daterange365 = dates365[year]
-        points, cccadict = cccapoints(nd, points, daterange365)
+        points, cccadict = cccapoints(nd, points)
         hrsds = {}
         for nx in cccadict.keys():
             hrsds[nx] = {}
@@ -758,10 +757,10 @@ def mean_confidence_interval(data, confidence=0.95, decimals=0):
 
 def pvstatistics(hpv):
     # to be sure get rid of leap days, only 365 days per year are recognized
-    hpv = hpv[~((hpv['datetime'].dt.month == 2) &
-                (hpv['datetime'].dt.day == 29))]
+    hpv = hpv[~((hpv.index.month == 2) &
+                (hpv.index.day == 29))]
     hpv['hour'] = np.tile(np.array(range(1, 8761)),
-                          len(hpv['datetime'].dt.year.unique()))
+                          len(hpv.index.year.unique()))
     hourgroup = hpv[['ghi', 'dni', 'dhi', 'Wh']].groupby(hpv['hour'])
 
     # long-term quantile values per hour of year over all years
@@ -773,7 +772,7 @@ def pvstatistics(hpv):
         x['Wh'], confidence=0.95, decimals=2))
     # long-term average yearly production
     ymean = hpv[['ghi', 'dni', 'dhi', 'Wh']].groupby(
-        hpv['datetime'].dt.year).sum()/1000
+        hpv.index.year).sum()/1000
     mghi = mean_confidence_interval(
         ymean['ghi'], confidence=0.95, decimals=0)
     mdni = mean_confidence_interval(
@@ -784,13 +783,13 @@ def pvstatistics(hpv):
     ysmean = pd.DataFrame(data=np.array([mghi, mdni, mdhi, mkWh]), index=[
         'ghi', 'dni', 'dhi', 'kWh'], columns=['mean', 'lcb95', 'ucb95'])
 
-    months = hpv['datetime'].dt.month.unique()
+    months = hpv.index.month.unique()
     mhdat = {}
     mhmean = {}
     smdat = []
     for m in months:
         # hourly quantile values for an average day for each month
-        mhourgroup = hpv[hpv['datetime'].dt.month == m][[
+        mhourgroup = hpv[hpv.index.month == m][[
             'ghi', 'dni', 'dhi', 'Wh']].groupby(hpv['hour'])
         mmdat = mhourgroup.quantile(q=[0, 0.25, 0.5, 0.75, 1])
         mhdat[m] = mmdat
@@ -798,8 +797,9 @@ def pvstatistics(hpv):
         mmhmean = mhourgroup.apply(lambda x: mean_confidence_interval(
             x['Wh'], confidence=0.95, decimals=2))
         mhmean[m] = mmhmean
-        mmean = hpv[hpv['datetime'].dt.month == m][['Wh']].groupby(
-            hpv['datetime'].dt.year).sum()/1000
+
+        hpv['year'] = hpv.index.year
+        mmean = hpv[hpv.index.month == m].groupby(['year'])[['Wh']].sum()/1000
         mkWh = mean_confidence_interval(
             mmean['Wh'], confidence=0.95, decimals=2)
         smdat.append(mkWh)
@@ -914,7 +914,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             f"Selecting areas")
 
     lupolys, points = areaselection()
-    points = points[1:9]
+    #points = points[1:9]
 
     # horizon calculation for each point (angle as COS)
     if dbg:
@@ -935,11 +935,12 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     # readNETCDF
     if dbg:
         typer.echo(
-            f"Reading CCCA data")
-
+            f"Reading CCCA data:", nl=False)
     hrsds, points = getcccadata(nd, points)
     if dbg:
-        print('Number of points:', len(points))
+        typer.echo(
+            f"finished")
+        typer.echo('Number of points:', len(points))
 
     # open HDF Store
     rawstore = pd.HDFStore(path.joinpath(Path.home(),
@@ -947,67 +948,39 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                                          'hourly_raw.hdf'))
 
     # iterate over all points in the area
+    typer.echo('Processing of point: ', nl=False)
     for pidx, prow in points.iterrows():
-        #if pidx == 1: continue
+        typer.echo(pidx, ' ', nl = False)
         strnx = prow['nx']
         strny = prow['ny']
+        prow['result'] = {}
         for y in hrsds[strnx][strny]:
             prow['result'][y] = {}
-            print(strnx, strny, y, pidx)
-            print(hrsds[strnx][strny][y].head(24))
+
             # reduction of radiation (direct and indirect) according to horizon information
             st = datetime.datetime.now()
             hrsds[strnx][strny][y] = dhidni_horizonadaption(
                 hrsds[strnx][strny][y], prow)
-            print(hrsds[strnx][strny][y].head(24))
             # note: DNI can be bigger than GHI, especially if the sun is near the horizon. Looks awkward, should be no problem
             # hrsds[strnx][strny][y]['datetime'] = hrsds[strnx][strny][y].index
             res = pd.DataFrame.from_dict(
                 simpvsystems(hrsds[strnx][strny][y], prow))
-            prow['results'][y]['Wh'] = res
-            #print(hrsds[strnx][strny][y].head(24))
-            #hrsds[strnx][strny][y] = hrsds[strnx][strny][y].reset_index(
-            #    level=0)
-            #hrsds[strnx][strny][y] = hrsds[strnx][strny][y].rename(
-            #    columns={'index': 'datetime'})
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['w_h'], inplace = True)
-            #except: pass
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['z_h'], inplace = True)
-            #except: pass
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['z_h_a'], inplace = True)
-            #except: pass
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['cos_z_h'], inplace = True)
-            #except: pass
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['ratio'], inplace = True)
-            #except: pass
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['kt'], inplace = True)
-            #except: pass
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['dni_orig'], inplace = True)
-            #except: pass
-            #try:
-            #    hrsds[strnx][strny][y].drop(columns=['dhi_orig'], inplace = True)
-            #except: pass
+
+            phdata = hrsds[strnx][strny][y]
+            phdata['Wh'] = res
             [ysmean, yhmean, yhdat, msmean, mhmean,
-                mhdat] = pvstatistics(hrsds[strnx][strny][y])
+                mhdat] = pvstatistics(phdata)
             et = datetime.datetime.now()
             delta = et-st
+            print(delta)
             prow[str(y)+'_avg'] = ysmean['mean']['kWh']
             prow[str(y)+'_l95'] = ysmean['lcb95']['kWh']
             prow[str(y)+'_u95'] = ysmean['ucb95']['kWh']
-    print(points.to_markdown())
 
     rawstore.close()
-    exit(0)
 
-    rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
-    rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
+    #rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
+    #rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 
     typer.echo("finished")
 
