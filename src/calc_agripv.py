@@ -35,6 +35,7 @@ import uuid
 import renspatial as rs
 
 import tabulate
+import warnings
 
 # constants
 
@@ -270,11 +271,13 @@ def areaselection():
                                    fieldname='slope', samplemethod=1)
     typer.echo(
         f"finished")
+
     typer.echo(
         f"\tjoining polygons and points: ", nl=False)
     points['nidx'] = points.index
 
     lupolys = rs.nearestgeom(lupolys, points, neighbor=1)
+
     lupolys = lupolys.merge(
         points[["nidx", "altitude", "slope"]], on='nidx', how='inner').drop(columns=['nidx'])
 
@@ -288,11 +291,11 @@ def areaselection():
     print(lupolys[lupolys.PV.eq(True)].shape)
     points = gpd.sjoin(
         points, lupolys[lupolys['PV']], how='left', predicate='within')
-    points.drop(['altitude_left', 'nidx', 'index_right',
-                'level_1', 'ndst'], axis=1, inplace=True)
-    points.rename(columns={'slope_left': 'slope',
+    points.drop(['altitude_left', 'slope_left', 'nidx', 'index_right',
+                'level_1', 'ndst', 'fid_left'], axis=1, inplace=True)
+    points.rename(columns={'slope_right': 'slope',
                            'altitude_right': 'altitude',
-                           'slope_right': 'slope'}, inplace=True)
+                           'fid_right': 'fid'}, inplace=True)
     points = points.dropna()
     typer.echo(
         f"finished")
@@ -632,7 +635,9 @@ def gethorizon(points):
         if config['files']['hornc']:
             horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
             res = horres['horizon'].values
-            res = np.subtract(90, res).tolist()
+            res = np.subtract(90, res)
+            res = np.around(res.astype(float),decimals=2)
+            res = res.tolist()
         else:
             with rasterio.open(config['files']['dhm'], 'r') as ds:
                 crop_dem, crop_tf = rasterio.mask.mask(
@@ -655,7 +660,6 @@ def gethorizon(points):
                     res.append(
                         round(math.degrees(math.acos(horangles[a][(py, px)])), 2))
         res = json.dumps(res)
-        # print(res)
         points.at[idx, 'horizon'] = res
     return(points)
 
@@ -929,7 +933,6 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         by='cat').geometry.convex_hull.buffer(50000)
     rs.writeGEO(areabuf, path.joinpath(
         Path.home(), 'pa3c3out'), 'area')
-
     points = gethorizon(points)
     # sunrise / sunset at area center
     # readNETCDF
@@ -940,7 +943,6 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     if dbg:
         typer.echo(
             f"finished")
-        typer.echo('Number of points:', len(points))
 
     # open HDF Store
     rawstore = pd.HDFStore(path.joinpath(Path.home(),
@@ -948,37 +950,58 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                                          'hourly_raw.hdf'))
 
     # iterate over all points in the area
+            
     typer.echo('Processing of point: ', nl=False)
     for pidx, prow in points.iterrows():
-        typer.echo(pidx, ' ', nl = False)
+        #typer.echo(f"%s " % pidx, nl=False)
         strnx = prow['nx']
         strny = prow['ny']
         prow['result'] = {}
-        for y in hrsds[strnx][strny]:
-            prow['result'][y] = {}
+        for pidx2 in range(0,pidx):
+            prow2 = points.iloc[pidx2]
+            print(pidx, pidx2)
+            print(prow['nx'], ' is ', prow2['nx'])
+            print(prow['ny'], ' is ', prow2['ny'])
+            print(prow['horizon'])
+            print(prow2['horizon'])
+            if prow['nx'] == prow2['nx'] and prow['ny'] == prow2['ny'] and prow['horizon'] == prow2['horizon']:
+                #print(prow['nx'], ' is ', prow2['nx'], ' and ', prow['ny'], ' is ',
+                #      prow2['ny'], ' and ', prow['horizon'], ' is ', prow2['horizon'])
+                print('match')
+                prow['result'] = prow2['result']
+                break
+                
+        print(prow['result'])
+        if prow['result'] == {}:
+            for y in hrsds[strnx][strny]:
+                prow['result'][y] = {}
 
-            # reduction of radiation (direct and indirect) according to horizon information
-            st = datetime.datetime.now()
-            hrsds[strnx][strny][y] = dhidni_horizonadaption(
-                hrsds[strnx][strny][y], prow)
-            # note: DNI can be bigger than GHI, especially if the sun is near the horizon. Looks awkward, should be no problem
-            # hrsds[strnx][strny][y]['datetime'] = hrsds[strnx][strny][y].index
-            res = pd.DataFrame.from_dict(
-                simpvsystems(hrsds[strnx][strny][y], prow))
+                # reduction of radiation (direct and indirect) according to horizon information
+                st = datetime.datetime.now()
+                hrsds[strnx][strny][y] = dhidni_horizonadaption(
+                    hrsds[strnx][strny][y], prow)
+                # note: DNI can be bigger than GHI, especially if the sun is near the horizon. Looks awkward, should be no problem
+                # hrsds[strnx][strny][y]['datetime'] = hrsds[strnx][strny][y].index
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    res = pd.DataFrame.from_dict(
+                        simpvsystems(hrsds[strnx][strny][y], prow))
 
-            phdata = hrsds[strnx][strny][y]
-            phdata['Wh'] = res
-            [ysmean, yhmean, yhdat, msmean, mhmean,
-                mhdat] = pvstatistics(phdata)
-            et = datetime.datetime.now()
-            delta = et-st
-            print(delta)
-            prow[str(y)+'_avg'] = ysmean['mean']['kWh']
-            prow[str(y)+'_l95'] = ysmean['lcb95']['kWh']
-            prow[str(y)+'_u95'] = ysmean['ucb95']['kWh']
-
+                    # point hourly data
+                    phdata = hrsds[strnx][strny][y]
+                    phdata['Wh'] = res
+                    [ysmean, yhmean, yhdat, msmean, mhmean,
+                        mhdat] = pvstatistics(phdata)
+                    et = datetime.datetime.now()
+                    delta = et-st
+                    print(delta)
+                    prow[str(y)+'_avg'] = ysmean['mean']['kWh']
+                    prow[str(y)+'_l95'] = ysmean['lcb95']['kWh']
+                    prow[str(y)+'_u95'] = ysmean['ucb95']['kWh']
+    exit(0)
     rawstore.close()
-
+    print(lupolys.head(4))
+    print(points.head(4))
     #rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
     #rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
 
