@@ -636,7 +636,7 @@ def gethorizon(points):
             horres = get_horizon_values(hornc, row.geometry.x, row.geometry.y)
             res = horres['horizon'].values
             res = np.subtract(90, res)
-            res = np.around(res.astype(float),decimals=2)
+            res = np.around(res.astype(float), decimals=2)
             res = res.tolist()
         else:
             with rasterio.open(config['files']['dhm'], 'r') as ds:
@@ -950,31 +950,38 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                                          'hourly_raw.hdf'))
 
     # iterate over all points in the area
-            
+
     typer.echo('Processing of point: ', nl=False)
+    points['result'] = 0
     for pidx, prow in points.iterrows():
-        #typer.echo(f"%s " % pidx, nl=False)
+        typer.echo(f"%s " % pidx, nl=False)
         strnx = prow['nx']
         strny = prow['ny']
-        prow['result'] = {}
-        for pidx2 in range(0,pidx):
-            prow2 = points.iloc[pidx2]
-            print(pidx, pidx2)
-            print(prow['nx'], ' is ', prow2['nx'])
-            print(prow['ny'], ' is ', prow2['ny'])
-            print(prow['horizon'])
-            print(prow2['horizon'])
+        
+        for pidx2, prow2 in points.iterrows():
+            if pidx2 >= pidx:
+                break
+            # print(pidx2)
+            # print(prow2)
             if prow['nx'] == prow2['nx'] and prow['ny'] == prow2['ny'] and prow['horizon'] == prow2['horizon']:
-                #print(prow['nx'], ' is ', prow2['nx'], ' and ', prow['ny'], ' is ',
+                # print(prow['nx'], ' is ', prow2['nx'], ' and ', prow['ny'], ' is ',
                 #      prow2['ny'], ' and ', prow['horizon'], ' is ', prow2['horizon'])
                 print('match')
-                prow['result'] = prow2['result']
+                for y in hrsds[strnx][strny]:
+                    points.loc[pidx, str(
+                        y)+'_avg'] = points.loc[pidx2, str(y)+'_avg']
+                    points.loc[pidx, str(
+                        y)+'_l95'] = points.loc[pidx2, str(y)+'_l95']
+                    points.loc[pidx, str(
+                        y)+'_u95'] = points.loc[pidx2, str(y)+'_u95']
+
+                points.loc[pidx, 'result'] = 1
                 break
-                
-        print(prow['result'])
-        if prow['result'] == {}:
+
+        if points.loc[pidx, 'result'] == 0:
             for y in hrsds[strnx][strny]:
-                prow['result'][y] = {}
+                
+                print(y)
 
                 # reduction of radiation (direct and indirect) according to horizon information
                 st = datetime.datetime.now()
@@ -994,10 +1001,12 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                         mhdat] = pvstatistics(phdata)
                     et = datetime.datetime.now()
                     delta = et-st
-                    print(delta)
-                    prow[str(y)+'_avg'] = ysmean['mean']['kWh']
-                    prow[str(y)+'_l95'] = ysmean['lcb95']['kWh']
-                    prow[str(y)+'_u95'] = ysmean['ucb95']['kWh']
+                    # print(delta)
+                    points.loc[pidx, str(y)+'_avg'] = ysmean['mean']['kWh']
+                    points.loc[pidx, str(y)+'_l95'] = ysmean['lcb95']['kWh']
+                    points.loc[pidx, str(y)+'_u95'] = ysmean['ucb95']['kWh']
+            points.loc[pidx, 'result'] = 1
+    print(points)
     exit(0)
     rawstore.close()
     print(lupolys.head(4))
