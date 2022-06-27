@@ -673,21 +673,22 @@ def getcccadata(nd, points):
 
     # dates360 = dates365
     # cccadict = {}
-    for year, daterange in dates365.items():
-        daterange365 = dates365[year]
-        points, cccadict = cccapoints(nd, points)
-        hrsds = {}
-        for nx in cccadict.keys():
-            hrsds[nx] = {}
-            for ny in cccadict[nx].keys():
-                hrsds[nx][ny] = {}
-                geom = cccadict[nx][ny]['geometry']
-                altitude = cccadict[nx][ny]['altitude']
+    hrsds = {}
 
-                location = pvlib.location.Location(
-                    geom.y, geom.x,
-                    'UTC', altitude)
+    #daterange365 = dates365[year]
+    points, cccadict = cccapoints(nd, points)
+    for nx in cccadict.keys():
+        hrsds[nx] = {}
+        for ny in cccadict[nx].keys():
+            hrsds[nx][ny] = {}
+            geom = cccadict[nx][ny]['geometry']
+            altitude = cccadict[nx][ny]['altitude']
 
+            location = pvlib.location.Location(
+                geom.y, geom.x,
+                'UTC', altitude)
+
+            for year, daterange in dates365.items():
                 res = get_ccca_values(nd, int(nx), int(ny), daterange)
                 ddata = pd.DataFrame(index=daterange, data=res.rsds.values)
                 cccadict[nx][ny]['drsds'][year] = ddata
@@ -700,6 +701,7 @@ def getcccadata(nd, points):
                 # DNI+DHI hourly
                 hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
                 hrsds[nx][ny][year] = hdata
+    print(hrsds['661500']['462500'].keys())
     return(hrsds, points)
 
 
@@ -811,6 +813,13 @@ def pvstatistics(hpv):
         np.arange(1, 13), name='month'), columns=['mean', 'lcb95', 'ucb95'])
 
     return(ysmean, yhmean, yhdat, msmean, mhmean, mhdat)
+
+
+def merge_polypointsPA3C3(polys, points):
+    aggpoints = points.groupby(points['fid'].agg(
+        {'geometry': 'first(0)', 'fid': 'first(0)', '2015_avg': 'mean', '2045_avg': 'mean'}))
+    polys = pd.merge(polys, aggpoints, on=['fid', 'fid'])
+    return(polys)
 
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -957,16 +966,14 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
         typer.echo(f"%s " % pidx, nl=False)
         strnx = prow['nx']
         strny = prow['ny']
-        
+        phors = np.asarray(json.loads(prow['horizon']))
         for pidx2, prow2 in points.iterrows():
             if pidx2 >= pidx:
                 break
-            # print(pidx2)
-            # print(prow2)
-            if prow['nx'] == prow2['nx'] and prow['ny'] == prow2['ny'] and prow['horizon'] == prow2['horizon']:
+            phors2 = np.asarray(json.loads(prow2['horizon']))
+            if prow['nx'] == prow2['nx'] and prow['ny'] == prow2['ny'] and np.allclose(phors, phors2, atol=1):
                 # print(prow['nx'], ' is ', prow2['nx'], ' and ', prow['ny'], ' is ',
                 #      prow2['ny'], ' and ', prow['horizon'], ' is ', prow2['horizon'])
-                print('match')
                 for y in hrsds[strnx][strny]:
                     points.loc[pidx, str(
                         y)+'_avg'] = points.loc[pidx2, str(y)+'_avg']
@@ -980,9 +987,6 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
         if points.loc[pidx, 'result'] == 0:
             for y in hrsds[strnx][strny]:
-                
-                print(y)
-
                 # reduction of radiation (direct and indirect) according to horizon information
                 st = datetime.datetime.now()
                 hrsds[strnx][strny][y] = dhidni_horizonadaption(
@@ -1006,8 +1010,8 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     points.loc[pidx, str(y)+'_l95'] = ysmean['lcb95']['kWh']
                     points.loc[pidx, str(y)+'_u95'] = ysmean['ucb95']['kWh']
             points.loc[pidx, 'result'] = 1
-    print(points)
-    exit(0)
+    lupolys = merge_polypointsPA3C3(lupolys, points)
+    # exit(0)
     rawstore.close()
     print(lupolys.head(4))
     print(points.head(4))
