@@ -816,8 +816,10 @@ def pvstatistics(hpv):
 
 
 def merge_polypointsPA3C3(polys, points):
-    aggpoints = points.groupby(points['fid'].agg(
-        {'geometry': 'first(0)', 'fid': 'first(0)', '2015_avg': 'mean', '2045_avg': 'mean'}))
+    aggpoints = points.groupby('fid').agg(
+        {'geometry': 'first', '2015_avg': 'mean', '2045_avg': 'mean'})
+    print(polys)
+    print(aggpoints)
     polys = pd.merge(polys, aggpoints, on=['fid', 'fid'])
     return(polys)
 
