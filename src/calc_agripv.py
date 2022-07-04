@@ -36,6 +36,7 @@ import renspatial as rs
 
 import tabulate
 import warnings
+from pyogrio import write_dataframe
 
 # constants
 
@@ -105,7 +106,7 @@ def get_horizon_values(nd, nx, ny):
     -------
     x, y : values (integer)
     """
-    return(nd.sel(x=nx, y=ny, method='nearest'))
+    return(nd.sel(x=nx, y=ny, method="nearest"))
 
 
 def writeGEO(data, path, dataname, types={'geojson': 0, 'shape': 0, 'gpkg': 1}):
@@ -675,7 +676,7 @@ def getcccadata(nd, points):
     # cccadict = {}
     hrsds = {}
 
-    #daterange365 = dates365[year]
+    # daterange365 = dates365[year]
     points, cccadict = cccapoints(nd, points)
     for nx in cccadict.keys():
         hrsds[nx] = {}
@@ -701,7 +702,7 @@ def getcccadata(nd, points):
                 # DNI+DHI hourly
                 hdata = ghi2dni(hdata, config['pvmod']['hmodel'])
                 hrsds[nx][ny][year] = hdata
-    print(hrsds['661500']['462500'].keys())
+    # print(hrsds['661500']['462500'].keys())
     return(hrsds, points)
 
 
@@ -818,10 +819,8 @@ def pvstatistics(hpv):
 def merge_polypointsPA3C3(polys, points):
     aggpoints = points.groupby('fid').agg(
         {'geometry': 'first', '2015_avg': 'mean', '2045_avg': 'mean'})
-    print(polys)
-    print(aggpoints)
     polys = pd.merge(polys, aggpoints, on=['fid', 'fid'])
-    return(polys)
+    return(polys, points)
 
 
 def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
@@ -929,7 +928,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             f"Selecting areas")
 
     lupolys, points = areaselection()
-    #points = points[1:9]
+    # points = points[1:9]
 
     # horizon calculation for each point (angle as COS)
     if dbg:
@@ -962,6 +961,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
 
     # iterate over all points in the area
 
+    #points = points[1:8]
     typer.echo('Processing of point: ', nl=False)
     points['result'] = 0
     for pidx, prow in points.iterrows():
@@ -1012,14 +1012,17 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     points.loc[pidx, str(y)+'_l95'] = ysmean['lcb95']['kWh']
                     points.loc[pidx, str(y)+'_u95'] = ysmean['ucb95']['kWh']
             points.loc[pidx, 'result'] = 1
-    lupolys = merge_polypointsPA3C3(lupolys, points)
-    # exit(0)
     rawstore.close()
-    print(lupolys.head(4))
-    print(points.head(4))
-    #rs.writeGEO(lupolys, path.joinpath(Path.home(), 'pa3c3out'), 'PVlupolys')
-    #rs.writeGEO(points, path.joinpath(Path.home(), 'pa3c3out'), 'PVpoints')
+    lupolys, points = merge_polypointsPA3C3(lupolys, points)
 
+    lupolys = lupolys.drop(
+        columns=["fid", "altitude", "slope", "B_altitude", "B_slope", "geometry_y"])
+    print(lupolys.dtypes)
+    points = points.drop(columns=['fid'])
+    write_dataframe(lupolys, path.joinpath(Path.home(), 'pa3c3out',
+                                           'lupolys.shp'))
+    # write_dataframe(points, path.joinpath(Path.home(), 'pa3c3out',
+    #               'points.gpkg'))
     typer.echo("finished")
 
 
