@@ -289,7 +289,7 @@ def areaselection():
     lupolys['PV'] = False
     lupolys.loc[(lupolys['B_landuse']) & (lupolys['B_area'])
                 & (lupolys['B_compact']) & (lupolys['B_altitude']) & (lupolys['B_slope']), 'PV'] = True
-    print(lupolys[lupolys.PV.eq(True)].shape)
+    #print(lupolys[lupolys.PV.eq(True)].shape)
     points = gpd.sjoin(
         points, lupolys[lupolys['PV']], how='left', predicate='within')
     points.drop(['altitude_left', 'slope_left', 'nidx', 'index_right',
@@ -818,7 +818,7 @@ def pvstatistics(hpv):
 
 def merge_polypointsPA3C3(polys, points):
     aggpoints = points.groupby('fid').agg(
-        {'geometry': 'first', '2015_avg': 'mean', '2045_avg': 'mean'})
+        {'geometry': 'first', '1991_avg': 'mean', '2041_avg': 'mean'})
     polys = pd.merge(polys, aggpoints, on=['fid', 'fid'])
     return(polys, points)
 
@@ -848,6 +848,11 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     path = t_path
     areaname = t_areaname
     dbg = t_dbg
+    
+    outpath = path.joinpath(Path.home(), 'pa3c3out', areaname,
+                    os.path.splitext(os.path.basename(t_configfile))[0])
+      
+    Path(outpath).mkdir(parents=True, exist_ok=True)
 
     # read config
 
@@ -871,6 +876,10 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     config['files']['cccanc'] = Path(t_cccancfile)
     config['files']['hornc'] = Path(t_horfile)
     # calculate horizon on the fly
+    
+    print(config['pvsystem'][0]['multiplier'])    
+
+
     if t_dhmhor:
         config['files']['hornc'] = False
 
@@ -941,8 +950,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
     areabuf['cat'] = 1
     areabuf = areabuf.dissolve(
         by='cat').geometry.convex_hull.buffer(50000)
-    rs.writeGEO(areabuf, path.joinpath(
-        Path.home(), 'pa3c3out'), 'area')
+    rs.writeGEO(areabuf, path.joinpath(outpath), 'areabuf')
     points = gethorizon(points)
     # sunrise / sunset at area center
     # readNETCDF
@@ -955,8 +963,7 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
             f"finished")
 
     # open HDF Store
-    rawstore = pd.HDFStore(path.joinpath(Path.home(),
-                                         'pa3c3out',
+    rawstore = pd.HDFStore(path.joinpath(outpath,
                                          'hourly_raw.hdf'))
 
     # iterate over all points in the area
@@ -1000,27 +1007,30 @@ def main(t_path: Path = typer.Option(DEFAULTPATH, "--path", "-p"),
                     res = pd.DataFrame.from_dict(
                         simpvsystems(hrsds[strnx][strny][y], prow))
 
-                    # point hourly data
-                    phdata = hrsds[strnx][strny][y]
-                    phdata['Wh'] = res
-                    [ysmean, yhmean, yhdat, msmean, mhmean,
-                        mhdat] = pvstatistics(phdata)
-                    et = datetime.datetime.now()
-                    delta = et-st
-                    # print(delta)
-                    points.loc[pidx, str(y)+'_avg'] = ysmean['mean']['kWh']
-                    points.loc[pidx, str(y)+'_l95'] = ysmean['lcb95']['kWh']
-                    points.loc[pidx, str(y)+'_u95'] = ysmean['ucb95']['kWh']
+                # point hourly data
+                phdata = hrsds[strnx][strny][y]
+                #print(res.head(24))
+                #print(config['pvsystem'][0]['multiplier'])
+                phdata['Wh'] = res
+                phdata['Wh'] = phdata['Wh'] * int(config['pvsystem'][0]['multiplier'])
+                [ysmean, yhmean, yhdat, msmean, mhmean,
+                    mhdat] = pvstatistics(phdata)
+                et = datetime.datetime.now()
+                delta = et-st
+                # print(delta)
+                points.loc[pidx, str(y)+'_avg'] = ysmean['mean']['kWh']
+                points.loc[pidx, str(y)+'_l95'] = ysmean['lcb95']['kWh']
+                points.loc[pidx, str(y)+'_u95'] = ysmean['ucb95']['kWh']
             points.loc[pidx, 'result'] = 1
     rawstore.close()
     lupolys, points = merge_polypointsPA3C3(lupolys, points)
 
     lupolys = lupolys.drop(
         columns=["fid", "altitude", "slope", "B_altitude", "B_slope", "geometry_y"])
-    print(lupolys.dtypes)
+
     points = points.drop(columns=['fid'])
-    write_dataframe(lupolys, path.joinpath(Path.home(), 'pa3c3out',
-                                           'lupolys.shp'))
+    
+    write_dataframe(lupolys, path.joinpath(outpath, 'lupolys.shp'))
     # write_dataframe(points, path.joinpath(Path.home(), 'pa3c3out',
     #               'points.gpkg'))
     typer.echo("finished")
